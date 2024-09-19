@@ -5,7 +5,10 @@ description = "Add your description here"
 authors = [
     { name = "Armaan Abraham", email = "armaanabraham@g.ucla.edu" }
 ]
-dependencies = []
+dependencies = [
+    "torch>=2.4.1",
+    "numpy>=2.1.1",
+]
 readme = "README.md"
 requires-python = ">= 3.8"
 
