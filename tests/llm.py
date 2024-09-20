@@ -48,7 +48,7 @@ tokens = encoded.tokens
 out_tokens, _ = generate(
     [tokens],
     model,
-    images=[images],
+    # images=[images],
     max_tokens=256,
     temperature=0.35,
     eos_id=tokenizer.instruct_tokenizer.tokenizer.eos_id,
