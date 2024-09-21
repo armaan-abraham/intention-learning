@@ -47,6 +47,7 @@ def get_embedding(input_text=None, input_image_url=None):
         ]
     )
     encoded = tokenizer.encode_chat_completion(completion_request)
+
     prompts = [encoded.tokens]
     images = [encoded.images]
     images_torch = [
@@ -59,12 +60,35 @@ def get_embedding(input_text=None, input_image_url=None):
     prompts_torch = torch.tensor(sum(prompts, []), device=model.device, dtype=torch.long)
     with torch.no_grad():
         output = model.forward_partial(prompts_torch, seqlens=seqlens, images=flattened_images)
+        
     
     out_np = output.float().cpu().numpy()
+    print(out_np.shape)
     assert out_np.shape[0] == len(prompts[0])
-    return out_np[-1]
+    embedding = np.mean(out_np, axis=0)
+    return embedding
 
-
+def generate_text(input_text=None, input_image_url=None):
+    content = []
+    if input_image_url:
+        content.append(ImageURLChunk(image_url=input_image_url))
+    if input_text:
+        content.append(TextChunk(text=input_text))
+    completion_request = ChatCompletionRequest(
+        messages=[
+            UserMessage(content=content)
+        ]
+    )
+    encoded = tokenizer.encode_chat_completion(completion_request)
+    prompts = [encoded.tokens]
+    images = [encoded.images]
+    images_torch = [
+        [torch.tensor(im, device=model.device, dtype=model.dtype) for im in images_for_sample]
+        for images_for_sample in images
+    ]
+    flattened_images = sum(images_torch, []) 
+    seqlens = [len(x) for x in prompts]
+    prompts_torch = torch.tensor(sum(prompts, []), device=model.device, dtype=torch.long)
 
 def cosine_similarity(v1, v2):
     dot_product = np.dot(v1, v2.T)
@@ -75,12 +99,13 @@ def cosine_similarity(v1, v2):
 # Run the model
 url = "https://huggingface.co/datasets/patrickvonplaten/random_img/resolve/main/yosemite.png"
 text1 = "Yosemite national park"
-text2 = "George Soros"
+text2 = "Object-oriented programming"
 embedding_text1 = get_embedding(input_text=text1)
 embedding_text2 = get_embedding(input_text=text2)
 embedding_image = get_embedding(input_image_url=url)
 
 # Get embeddings
+print("text1, text1", cosine_similarity(embedding_text1, embedding_text1))
 print("text1, text2", cosine_similarity(embedding_text1, embedding_text2))
 print("text1, image", cosine_similarity(embedding_text1, embedding_image))
 print("text2, image", cosine_similarity(embedding_text2, embedding_image))
