@@ -21,74 +21,32 @@ from mistral_inference.transformer import Transformer
 from mistral_inference.generate import generate
 
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-from mistral_common.protocol.instruct.messages import (
-    UserMessage,
-    TextChunk,
-    ImageURLChunk,
-)
-from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
 import torch
 import numpy as np
 
-tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json")
+tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json").instruct_tokenizer.tokenizer
 model = Transformer.from_folder(mistral_models_path).eval()
 
 
 # Function to get embeddings
 def get_embedding(input_text=None, input_image_url=None):
-    content = []
-    if input_image_url:
-        content.append(ImageURLChunk(image_url=input_image_url))
-    if input_text:
-        content.append(TextChunk(text=input_text))
-    completion_request = ChatCompletionRequest(
-        messages=[
-            UserMessage(content=content)
-        ]
-    )
-    encoded = tokenizer.encode_chat_completion(completion_request)
+    encoded = tokenizer.encode(input_text, bos=True, eos=False)
 
-    prompts = [encoded.tokens]
     images = [encoded.images]
     images_torch = [
         [torch.tensor(im, device=model.device, dtype=model.dtype) for im in images_for_sample]
         for images_for_sample in images
     ]
     flattened_images = sum(images_torch, []) 
-    # TODO: eos id?
-    seqlens = [len(x) for x in prompts]
-    prompts_torch = torch.tensor(sum(prompts, []), device=model.device, dtype=torch.long)
+    encoded_torch = torch.tensor(encoded, device=model.device, dtype=torch.long)
     with torch.no_grad():
-        output = model.forward_partial(prompts_torch, seqlens=seqlens, images=flattened_images)
+        output = model.forward_partial(encoded_torch, images=flattened_images, seqlens=[len(encoded)])
         
     
     out_np = output.float().cpu().numpy()
-    print(out_np.shape)
-    assert out_np.shape[0] == len(prompts[0])
-    embedding = np.mean(out_np, axis=0)
+    embedding = out_np[-1]
     return embedding
-
-def generate_text(input_text=None, input_image_url=None):
-    content = []
-    if input_image_url:
-        content.append(ImageURLChunk(image_url=input_image_url))
-    if input_text:
-        content.append(TextChunk(text=input_text))
-    completion_request = ChatCompletionRequest(
-        messages=[
-            UserMessage(content=content)
-        ]
-    )
-    encoded = tokenizer.encode_chat_completion(completion_request)
-    prompts = [encoded.tokens]
-    images = [encoded.images]
-    images_torch = [
-        [torch.tensor(im, device=model.device, dtype=model.dtype) for im in images_for_sample]
-        for images_for_sample in images
-    ]
-    flattened_images = sum(images_torch, []) 
-    seqlens = [len(x) for x in prompts]
-    prompts_torch = torch.tensor(sum(prompts, []), device=model.device, dtype=torch.long)
 
 def cosine_similarity(v1, v2):
     dot_product = np.dot(v1, v2.T)
@@ -97,15 +55,23 @@ def cosine_similarity(v1, v2):
     return dot_product / (norm_v1 * norm_v2)
 
 # Run the model
-url = "https://huggingface.co/datasets/patrickvonplaten/random_img/resolve/main/yosemite.png"
-text1 = "Yosemite national park"
-text2 = "Object-oriented programming"
-embedding_text1 = get_embedding(input_text=text1)
-embedding_text2 = get_embedding(input_text=text2)
-embedding_image = get_embedding(input_image_url=url)
+# url = "https://huggingface.co/datasets/patrickvonplaten/random_img/resolve/main/yosemite.png"
+
+texts = [
+    "Yosemite",
+    "Object-oriented programming",
+    "National Park",
+    "Park",
+    "Osama bin laden",
+    "Fire",
+]
+
+# Run the model
+embeddings = [
+    get_embedding(input_text=f"Describe this in detail: {text}") for text in texts
+]
 
 # Get embeddings
-print("text1, text1", cosine_similarity(embedding_text1, embedding_text1))
-print("text1, text2", cosine_similarity(embedding_text1, embedding_text2))
-print("text1, image", cosine_similarity(embedding_text1, embedding_image))
-print("text2, image", cosine_similarity(embedding_text2, embedding_image))
+for i in range(len(embeddings)):
+    for j in range(i + 1, len(embeddings)):
+        print(f"{texts[i]} -- {texts[j]}: {round(cosine_similarity(embeddings[i], embeddings[j]), 3)}")
