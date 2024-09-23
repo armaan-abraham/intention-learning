@@ -10,6 +10,8 @@
 #   universal: false
 
 -e file:.
+absl-py==2.1.0
+    # via mujoco
 accelerate==0.34.2
     # via intention-learning
 annotated-types==0.7.0
@@ -31,6 +33,8 @@ decorator==5.1.1
     # via ipython
 docstring-parser==0.16
     # via simple-parsing
+etils==1.9.4
+    # via mujoco
 executing==2.1.0
     # via stack-data
 filelock==3.16.1
@@ -41,8 +45,15 @@ filelock==3.16.1
 fire==0.6.0
     # via mistral-inference
 fsspec==2024.9.0
+    # via etils
     # via huggingface-hub
     # via torch
+gitdb==4.0.11
+    # via gitpython
+gitpython==3.1.43
+    # via robot-descriptions
+glfw==2.7.0
+    # via mujoco
 huggingface-hub==0.25.0
     # via accelerate
     # via intention-learning
@@ -50,6 +61,8 @@ huggingface-hub==0.25.0
     # via transformers
 idna==3.10
     # via requests
+importlib-resources==6.4.5
+    # via etils
 ipykernel==6.29.5
     # via intention-learning
 ipython==8.27.0
@@ -78,6 +91,8 @@ mistral-inference==1.4.0
     # via intention-learning
 mpmath==1.3.0
     # via sympy
+mujoco==3.2.3
+    # via intention-learning
 nest-asyncio==1.6.0
     # via ipykernel
 networkx==3.3
@@ -85,6 +100,7 @@ networkx==3.3
 numpy==2.1.1
     # via accelerate
     # via intention-learning
+    # via mujoco
     # via opencv-python-headless
     # via transformers
     # via xformers
@@ -149,6 +165,8 @@ pydantic-core==2.23.4
     # via pydantic
 pygments==2.18.0
     # via ipython
+pyopengl==3.1.7
+    # via mujoco
 python-dateutil==2.9.0.post0
     # via jupyter-client
 pyyaml==6.0.2
@@ -169,6 +187,8 @@ requests==2.32.3
     # via mistral-common
     # via tiktoken
     # via transformers
+robot-descriptions==1.12.0
+    # via intention-learning
 rpds-py==0.20.0
     # via jsonschema
     # via referencing
@@ -187,6 +207,8 @@ six==1.16.0
     # via asttokens
     # via fire
     # via python-dateutil
+smmap==5.0.1
+    # via gitdb
 stack-data==0.6.3
     # via ipython
 sympy==1.13.3
@@ -206,6 +228,7 @@ tornado==6.4.1
     # via jupyter-client
 tqdm==4.66.5
     # via huggingface-hub
+    # via robot-descriptions
     # via transformers
 traitlets==5.14.3
     # via comm
@@ -219,6 +242,7 @@ transformers==4.44.2
 triton==3.0.0
     # via torch
 typing-extensions==4.12.2
+    # via etils
     # via huggingface-hub
     # via mistral-common
     # via pydantic
@@ -231,3 +255,5 @@ wcwidth==0.2.13
     # via prompt-toolkit
 xformers==0.0.28.post1
     # via mistral-inference
+zipp==3.20.2
+    # via etils
