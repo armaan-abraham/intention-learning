@@ -55,18 +55,15 @@ def wrap_image_content(image_b64: str) -> str:
 from pathlib import Path
 
 
-IMAGE_DIR = Path(__file__).parent.parent / "paired_images"
+IMAGE_DIR = Path(__file__).parent.parent / "paired_images_pendulum_150"
 image_files = list(IMAGE_DIR.glob("*.png"))
-prompt = """In which frame is the elf closer to the gift box?""".replace("\n", " ")
+prompt = """In which frame is the pendulum pointing more upward? Only include the frame label which has the pendulum pointing more upward in your response, and surround it by stars (i.e. *a* or *b*). Respond in one sentence or less.""".replace("\n", " ")
 
 truth = []
 predict = []
 results = []
 
 for image_file in image_files:
-    file1, file2 = image_file.name.split("_")
-    format_coord = lambda filename: f"({filename.replace('-', ',').replace('.png', '')})"
-    coord1, coord2 = format_coord(file1), format_coord(file2)
 
     completion_request = ChatCompletionRequest(
         messages=[
@@ -99,12 +96,9 @@ for image_file in image_files:
     result = tokenizer.decode(out_tokens[0])
 
     results.append(result)
-
-    # answer = result.split("'")[1]
-    # remove any style and whitespace
-    # answer = answer.replace("*", "").replace("~", "").replace("_", "").replace(" ", "")
-    # predict.append(answer)
-    # print(image_file, result)
+    print(image_file.name)
+    print(result)
+    print("-" * 100)
     
 
 # %%
