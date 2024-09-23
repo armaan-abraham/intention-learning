@@ -23,8 +23,11 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 import torch
 import numpy as np
 
-tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tokenizer.model").instruct_tokenizer.tokenizer
+tokenizer = MistralTokenizer.from_file(
+    f"{mistral_models_path}/tokenizer.model"
+).instruct_tokenizer.tokenizer
 model = Transformer.from_folder(mistral_models_path, dtype=torch.bfloat16).eval()
+
 
 # Function to get embeddings
 def get_embedding(input_text=None):
@@ -36,11 +39,13 @@ def get_embedding(input_text=None):
 
     return output.float()[-1].cpu().detach().numpy()
 
+
 def cosine_similarity(v1, v2):
     dot_product = np.dot(v1, v2.T)
     norm_v1 = np.linalg.norm(v1)
     norm_v2 = np.linalg.norm(v2)
     return dot_product / (norm_v1 * norm_v2)
+
 
 texts = [
     "Yosemite",
@@ -52,12 +57,12 @@ texts = [
 ]
 
 # Run the model
-embeddings = [
-    get_embedding(input_text=text) for text in texts
-]
+embeddings = [get_embedding(input_text=text) for text in texts]
 
 
 # Get embeddings
 for i in range(len(embeddings)):
     for j in range(i + 1, len(embeddings)):
-        print(f"{texts[i]} -- {texts[j]}: {round(cosine_similarity(embeddings[i], embeddings[j]), 3)}")
+        print(
+            f"{texts[i]} -- {texts[j]}: {round(cosine_similarity(embeddings[i], embeddings[j]), 3)}"
+        )

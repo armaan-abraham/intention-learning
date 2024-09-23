@@ -1,4 +1,4 @@
-# download the model
+# %%
 from huggingface_hub import snapshot_download
 from pathlib import Path
 import os
@@ -25,7 +25,9 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 import torch
 import numpy as np
 
-tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json").instruct_tokenizer.tokenizer
+tokenizer = MistralTokenizer.from_file(
+    f"{mistral_models_path}/tekken.json"
+).instruct_tokenizer.tokenizer
 model = Transformer.from_folder(mistral_models_path).eval()
 
 
@@ -35,24 +37,30 @@ def get_embedding(input_text=None, input_image_url=None):
 
     images = [encoded.images]
     images_torch = [
-        [torch.tensor(im, device=model.device, dtype=model.dtype) for im in images_for_sample]
+        [
+            torch.tensor(im, device=model.device, dtype=model.dtype)
+            for im in images_for_sample
+        ]
         for images_for_sample in images
     ]
-    flattened_images = sum(images_torch, []) 
+    flattened_images = sum(images_torch, [])
     encoded_torch = torch.tensor(encoded, device=model.device, dtype=torch.long)
     with torch.no_grad():
-        output = model.forward_partial(encoded_torch, images=flattened_images, seqlens=[len(encoded)])
-        
-    
+        output = model.forward_partial(
+            encoded_torch, images=flattened_images, seqlens=[len(encoded)]
+        )
+
     out_np = output.float().cpu().numpy()
     embedding = out_np[-1]
     return embedding
+
 
 def cosine_similarity(v1, v2):
     dot_product = np.dot(v1, v2.T)
     norm_v1 = np.linalg.norm(v1)
     norm_v2 = np.linalg.norm(v2)
     return dot_product / (norm_v1 * norm_v2)
+
 
 # Run the model
 # url = "https://huggingface.co/datasets/patrickvonplaten/random_img/resolve/main/yosemite.png"
@@ -74,4 +82,6 @@ embeddings = [
 # Get embeddings
 for i in range(len(embeddings)):
     for j in range(i + 1, len(embeddings)):
-        print(f"{texts[i]} -- {texts[j]}: {round(cosine_similarity(embeddings[i], embeddings[j]), 3)}")
+        print(
+            f"{texts[i]} -- {texts[j]}: {round(cosine_similarity(embeddings[i], embeddings[j]), 3)}"
+        )
