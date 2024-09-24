@@ -68,19 +68,6 @@ class ImageHandler:
                 [(tip_x, tip_y), (base_left_x, base_left_y), (base_right_x, base_right_y)],
                 fill=fill_color
             )
-        # else:
-        #     tip_x = x_end + pendulum_width * np.sin(theta)
-        #     tip_y = y_end + pendulum_width * np.cos(theta)
-        #     theta_perp = theta + np.pi / 2  # Perpendicular angle
-        #     arrow_width = pendulum_width
-
-        #     base_left_x = x_end + (arrow_width / 2) * np.sin(theta_perp)
-        #     base_left_y = y_end + (arrow_width / 2) * np.cos(theta_perp)
-
-        #     base_right_x = x_end - (arrow_width / 2) * np.sin(theta_perp)
-        #     base_right_y = y_end - (arrow_width / 2) * np.cos(theta_perp)
-
-        #     draw.line([(x_end, y_end), (tip_x, tip_y)], fill=fill_color, width=pendulum_width)
 
         # Flip the image
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
@@ -118,11 +105,6 @@ class ImageHandler:
         # Create a base image
         combined_img = Image.new("RGBA", (self.image_dim, self.image_dim), (255, 255, 255, 255))
 
-        # Overlay the goal state if provided
-        if goal_state is not None:
-            img_goal = self.render_state(goal_state, color=goal_color, opacity=opacity, width=1/30, length_sub=1/4, pointed=True, arrow_size=1.5)
-            combined_img = Image.alpha_composite(combined_img, img_goal)
-
         # Render the states with specified colors and opacity
         img1 = self.render_state(s1, color=color1, opacity=opacity, width=1/100, pointed=False)
         img2 = self.render_state(s2, color=color2, opacity=opacity, width=1/100, pointed=False)
@@ -131,14 +113,12 @@ class ImageHandler:
         combined_img = Image.alpha_composite(combined_img, img1)
         combined_img = Image.alpha_composite(combined_img, img2)
 
-        # Add stacked labels
-        draw = ImageDraw.Draw(combined_img)
-        font_size = int(self.image_dim // 18)
-
-        # Load a bold TrueType font. You may need to adjust the font path based on your system.
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)  # Linux
-
         return combined_img
+
+    def create_overlaid_images(self, states1: np.ndarray, states2: np.ndarray) -> List[Image.Image]:
+        # TODO: parallel?
+        imgs = [self.create_overlaid_image(s1, s2) for s1, s2 in zip(states1, states2)]
+        return imgs
 
     def save_image(self, img, path):
         """Save the image to the specified path.
