@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 
-class PendulumDataManager:
+class DataManager:
     """Handles environment initialization, data generation, and storage."""
 
     def __init__(self, num_envs, seed, replay_buffer_size, judgment_frequency):
@@ -64,6 +64,7 @@ class PendulumDataManager:
         Returns:
             np.ndarray: The rewards.
         """
+        # save the images after every judge interval
         pass
 
     def _preprocess_state(self, state):

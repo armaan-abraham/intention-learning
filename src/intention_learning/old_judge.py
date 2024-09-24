@@ -55,9 +55,13 @@ def wrap_image_content(image_b64: str) -> str:
 from pathlib import Path
 
 
-IMAGE_DIR = Path(__file__).parent.parent / "paired_images_pendulum_150"
+IMAGE_DIR = Path(__file__).parent.parent.parent / "images" / "paired_images"
 image_files = list(IMAGE_DIR.glob("*.png"))
-prompt = """In which frame is the pendulum pointing more upward? Only include the frame label which has the pendulum pointing more upward in your response, and surround it by stars (i.e. *a* or *b*). Respond in one sentence or less.""".replace("\n", " ")
+prompt = """You are an evaluation model for the task of ranking frames in a game
+based on how close they are to a certain goal. In this case, the goal is to make
+the arrow point upward. Which frame, a or b, is closer to this goal? Respond
+only with this winning frame surrounded by asterisks, (*a* or *b*).
+""".replace("\n", " ").replace("  ", " ")
 
 truth = []
 predict = []
