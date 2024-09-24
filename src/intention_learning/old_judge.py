@@ -55,19 +55,20 @@ def wrap_image_content(image_b64: str) -> str:
 from pathlib import Path
 
 
-IMAGE_DIR = Path(__file__).parent.parent.parent / "images" / "paired_images"
+IMAGE_DIR = Path(__file__).parent.parent.parent / "images" / "overlaid_images_with_goal"
 image_files = list(IMAGE_DIR.glob("*.png"))
-prompt = """You are an evaluation model for the task of ranking frames in a game
-based on how close they are to a certain goal. In this case, the goal is to make
-the arrow point upward. Which frame, a or b, is closer to this goal? Respond
-only with this winning frame surrounded by asterisks, (*a* or *b*).
+prompt = """You are an evaluation model for the task of ranking arrows based on
+how close they point to a certain goal direction. In this case, the goal is to
+make the arrow point upward. Which arrow, a (the red arrow) or b (the blue
+arrow), is closer to this goal?  Respond only with this winning arrow surrounded
+by asterisks, (*a* or *b*).
 """.replace("\n", " ").replace("  ", " ")
 
 truth = []
 predict = []
 results = []
 
-for image_file in image_files:
+for i, image_file in enumerate(image_files):
 
     completion_request = ChatCompletionRequest(
         messages=[
@@ -102,13 +103,14 @@ for image_file in image_files:
     results.append(result)
     print(image_file.name)
     print(result)
+    try:
+        print(correct_answers[i])
+    except:
+        pass
     print("-" * 100)
     
 
 # %%
 
-for image_file, result in zip(image_files, results):
-    print(image_file.name)
-    print(result)
-    print()
+correct_answers = results
 # %%

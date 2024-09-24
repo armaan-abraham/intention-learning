@@ -1,81 +1,89 @@
 # Image handling functions
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 from pathlib import Path
 from itertools import permutations
 
 
 class ImageHandler:
-    def __init__(self, image_dim=900, grayscale=True):
+    def __init__(self, image_dim=600):
         self.image_dim = image_dim
-        self.grayscale = grayscale
 
-    def render_state(self, state: np.ndarray) -> Image.Image:
-        """Render the pendulum state into an image.
+    def render_state(self, state: np.ndarray, color: str = "black", opacity: int = 255, width: float = 1/25, length_sub=1/75, pointed=False, arrow_size = 1) -> Image.Image:
+        """Render the pendulum state into an image with specified color and opacity.
 
         Args:
             state (np.ndarray): The state to render, with shape (3,).
-            image_size (tuple, optional): Size of the output image. Defaults to (200, 200).
+            color (str, optional): Color of the pendulum. Defaults to "black".
+            opacity (int, optional): Opacity of the pendulum (0-255). Defaults to 255.
 
         Returns:
             PIL.Image.Image: The rendered image of the pendulum.
         """
-
         # Extract the angle θ from the state
         cos_theta, sin_theta = state[0], state[1]
         theta = np.arctan2(sin_theta, cos_theta)
 
         # Define pendulum parameters
         origin = (self.image_dim // 2, self.image_dim // 2)  # Center of the image
-        length = self.image_dim // 2 - self.image_dim // 8  # Length of the pendulum rod
+        length = self.image_dim // 2 - self.image_dim * length_sub  # Length of the pendulum rod
 
         # Calculate the pendulum bob position
         x_end = origin[0] + length * np.sin(theta)
         y_end = origin[1] + length * np.cos(theta)
 
-        # Create a blank image and get a drawing context
-        image = Image.new("RGB", (self.image_dim, self.image_dim), "white")
+        # Create a transparent image
+        image = Image.new("RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
 
-        pendulum_width = int(self.image_dim // 17)
+        pendulum_width = int(self.image_dim * width)
+
+        # Apply opacity to the color
+        fill_color = ImageColor.getrgb(color) + (opacity,)
 
         # Draw the pendulum rod
-        draw.line([origin, (x_end, y_end)], fill="black", width=pendulum_width)
+        draw.line([origin, (x_end, y_end)], fill=fill_color, width=pendulum_width)
 
-        # Add a circle at the origin
-        # circle_radius = 5
-        # draw.ellipse([origin[0] - circle_radius, origin[1] - circle_radius, origin[0] + circle_radius, origin[1] + circle_radius], fill="black")
+        if pointed:
+            # Draw triangle pointer at the end of the pendulum
+            arrow_length = int(pendulum_width * arrow_size)  # Length of the arrow tip
+            arrow_width = int(pendulum_width * arrow_size)   # Width of the arrow base
 
-        # Draw triangle pointer at the end of the pendulum
-        arrow_length = int(pendulum_width * 2)  # Length of the arrow tip
-        arrow_width = int(pendulum_width * 2)   # Width of the arrow base
+            # Calculate the tip point of the triangle
+            tip_x = x_end + arrow_length * np.sin(theta)
+            tip_y = y_end + arrow_length * np.cos(theta)
 
-        # Calculate the tip point of the triangle
-        tip_x = x_end + arrow_length * np.sin(theta)
-        tip_y = y_end + arrow_length * np.cos(theta)
+            # Calculate the base points of the triangle
+            theta_perp = theta + np.pi / 2  # Perpendicular angle
 
-        # Calculate the base points of the triangle
-        theta_perp = theta + np.pi / 2  # Perpendicular angle
+            base_left_x = x_end + (arrow_width / 2) * np.sin(theta_perp)
+            base_left_y = y_end + (arrow_width / 2) * np.cos(theta_perp)
 
-        base_left_x = x_end + (arrow_width / 2) * np.sin(theta_perp)
-        base_left_y = y_end + (arrow_width / 2) * np.cos(theta_perp)
+            base_right_x = x_end - (arrow_width / 2) * np.sin(theta_perp)
+            base_right_y = y_end - (arrow_width / 2) * np.cos(theta_perp)
 
-        base_right_x = x_end - (arrow_width / 2) * np.sin(theta_perp)
-        base_right_y = y_end - (arrow_width / 2) * np.cos(theta_perp)
+            # Draw the triangle pointer
+            draw.polygon(
+                [(tip_x, tip_y), (base_left_x, base_left_y), (base_right_x, base_right_y)],
+                fill=fill_color
+            )
+        # else:
+        #     tip_x = x_end + pendulum_width * np.sin(theta)
+        #     tip_y = y_end + pendulum_width * np.cos(theta)
+        #     theta_perp = theta + np.pi / 2  # Perpendicular angle
+        #     arrow_width = pendulum_width
 
-        # Draw the triangle pointer
-        draw.polygon(
-            [(tip_x, tip_y), (base_left_x, base_left_y), (base_right_x, base_right_y)],
-            fill="black"
-        )
+        #     base_left_x = x_end + (arrow_width / 2) * np.sin(theta_perp)
+        #     base_left_y = y_end + (arrow_width / 2) * np.cos(theta_perp)
 
-        # flip the image
+        #     base_right_x = x_end - (arrow_width / 2) * np.sin(theta_perp)
+        #     base_right_y = y_end - (arrow_width / 2) * np.cos(theta_perp)
+
+        #     draw.line([(x_end, y_end), (tip_x, tip_y)], fill=fill_color, width=pendulum_width)
+
+        # Flip the image
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
-
-        # Convert the image to grayscale
-        if self.grayscale:
-            image = image.convert("L")
 
         return image
 
@@ -91,61 +99,44 @@ class ImageHandler:
         return self.render_state(np.array([1.0, 0.0, 0.0]))
         
 
-    def create_labeled_pair(self, s1: np.ndarray | Image.Image, s2: np.ndarray | Image.Image) -> Image.Image:
-        """Create an image with the goal on the far left and two images labeled 'a' and 'b'.
+    def create_overlaid_image(self, s1: np.ndarray, s2: np.ndarray) -> Image.Image:
+        """Create an image overlaying two or three pendulum states with different colors, labels, and transparency.
 
         Args:
-            s1 (np.ndarray | Image.Image): The first image.
-            s2 (np.ndarray | Image.Image): The second image.
+            s1 (np.ndarray): The first state.
+            s2 (np.ndarray): The second state.
+            goal_state (np.ndarray, optional): The goal state to overlay. Defaults to None.
 
         Returns:
-            PIL.Image.Image: The combined image with labels.
+            PIL.Image.Image: The combined image with overlaid pendulums and stacked labels.
         """
-        if isinstance(s1, np.ndarray):
-            img1 = self.render_state(s1)
-        else:
-            img1 = s1
+        # Colors, labels, and opacity settings
+        color1 = "red"
+        color2 = "blue"
+        opacity = 150  # Adjust for desired transparency (0-255)
 
-        if isinstance(s2, np.ndarray):
-            img2 = self.render_state(s2)
-        else:
-            img2 = s2
+        # Create a base image
+        combined_img = Image.new("RGBA", (self.image_dim, self.image_dim), (255, 255, 255, 255))
 
-        # Render the goal image
-        goal_img = self.render_goal()
+        # Overlay the goal state if provided
+        if goal_state is not None:
+            img_goal = self.render_state(goal_state, color=goal_color, opacity=opacity, width=1/30, length_sub=1/4, pointed=True, arrow_size=1.5)
+            combined_img = Image.alpha_composite(combined_img, img_goal)
 
-        # Define padding and margin
-        top_padding = int(0.1 * self.image_dim)
-        margin = int(0.05 * self.image_dim)
+        # Render the states with specified colors and opacity
+        img1 = self.render_state(s1, color=color1, opacity=opacity, width=1/100, pointed=False)
+        img2 = self.render_state(s2, color=color2, opacity=opacity, width=1/100, pointed=False)
 
-        # Calculate dimensions
-        total_width = self.image_dim * 3 + margin * 2
-        total_height = self.image_dim + top_padding
+        # Overlay the two images onto the base image
+        combined_img = Image.alpha_composite(combined_img, img1)
+        combined_img = Image.alpha_composite(combined_img, img2)
 
-        # Create a new image with space for all images, labels, and margin
-        combined_img = Image.new('RGB', (total_width, total_height), color='black')
-
-        # Paste the images
-        combined_img.paste(goal_img, (0, top_padding))
-        combined_img.paste(img1, (self.image_dim + margin, top_padding))
-        combined_img.paste(img2, (2 * self.image_dim + 2 * margin, top_padding))
-
-        # Add labels
-        font = ImageFont.load_default(size=int(self.image_dim / 15))
+        # Add stacked labels
         draw = ImageDraw.Draw(combined_img)
-        draw.text((self.image_dim // 2, 5), "goal", fill="white", font=font, anchor="mt")
-        draw.text((self.image_dim + margin + self.image_dim // 2, 5), "a", fill="white", font=font, anchor="mt")
-        draw.text((2 * self.image_dim + 2 * margin + self.image_dim // 2, 5), "b", fill="white", font=font, anchor="mt")
+        font_size = int(self.image_dim // 18)
 
-        # Add lines to separate the images
-        # sep1_x = self.image_dim + margin // 2
-        # sep2_x = 2 * self.image_dim + margin + margin // 2
-        # line_width = 5
-        # draw.line([(sep1_x, 0), (sep1_x, total_height)], fill="white", width=5)
-        # draw.line([(sep2_x, 0), (sep2_x, total_height)], fill="white", width=5)
-
-        if self.grayscale:
-            combined_img = combined_img.convert("L")
+        # Load a bold TrueType font. You may need to adjust the font path based on your system.
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)  # Linux
 
         return combined_img
 
@@ -161,22 +152,25 @@ class ImageHandler:
 
 if __name__ == "__main__":
     from pathlib import Path
+    import numpy as np
 
     out_dir = Path(__file__).parent.parent.parent / "images"
-    
 
     # Create an instance of ImageHandler
-    image_handler = ImageHandler(grayscale=True)
+    image_handler = ImageHandler()
 
-    # Define a few pendulum states to render
-    angles = [0, np.pi/2, np.pi/2 + 0.05, np.pi/2 + 0.1]
+    # Define pendulum states to render
+    angles = [0, np.pi / 2, np.pi / 2 + 0.025, np.pi / 2 + 0.1, -np.pi / 4]
     states = [
         np.array([np.cos(angle), np.sin(angle), 0.0]) for angle in angles
     ]
 
-    # Specify the directory to save paired images
-    paired_images_dir = out_dir / "paired_images"
-    paired_images_dir.mkdir(parents=True, exist_ok=True)
+    # Define the goal state
+    goal_state = np.array([1.0, 0.0, 0.0])  # Angle 0 (rightward)
+
+    # Specify the directory to save overlaid images
+    overlaid_images_dir = out_dir / "overlaid_images_with_goal"
+    overlaid_images_dir.mkdir(parents=True, exist_ok=True)
 
     from itertools import permutations
 
@@ -185,15 +179,15 @@ if __name__ == "__main__":
         if np.all(s1 == s2):
             continue
 
-        # Create the paired image
-        paired_image = image_handler.create_labeled_pair(s1, s2)
+        # Create the overlaid image including the goal state
+        overlaid_image = image_handler.create_overlaid_image(s1, s2)
 
-        # Define the filename for the paired image
-        image_filename = f"pair_{idx}.png"
-        image_path = paired_images_dir / image_filename
+        # Define the filename for the overlaid image
+        image_filename = f"overlaid_with_goal_{idx}.png"
+        image_path = overlaid_images_dir / image_filename
 
-        # Save the paired image directly
-        paired_image.save(image_path)
+        # Save the overlaid image
+        overlaid_image.save(image_path)
 
-    print(f"Paired images have been saved to {paired_images_dir}")
+    print(f"Overlaid images with goal have been saved to {overlaid_images_dir}")
 
