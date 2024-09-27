@@ -4,10 +4,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageColor
 from pathlib import Path
 from itertools import permutations
+from typing import List
 
 
 class ImageHandler:
-    def __init__(self, image_dim=600):
+    def __init__(self, image_dim=450):
         self.image_dim = image_dim
 
     def render_state(self, state: np.ndarray, color: str = "black", opacity: int = 255, width: float = 1/25, length_sub=1/75, pointed=False, arrow_size = 1) -> Image.Image:
@@ -24,6 +25,7 @@ class ImageHandler:
         # Extract the angle θ from the state
         cos_theta, sin_theta = state[0], state[1]
         theta = np.arctan2(sin_theta, cos_theta)
+        pendulum_width = int(self.image_dim * width)
 
         # Define pendulum parameters
         origin = (self.image_dim // 2, self.image_dim // 2)  # Center of the image
@@ -37,7 +39,6 @@ class ImageHandler:
         image = Image.new("RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
 
-        pendulum_width = int(self.image_dim * width)
 
         # Apply opacity to the color
         fill_color = ImageColor.getrgb(color) + (opacity,)
@@ -45,29 +46,9 @@ class ImageHandler:
         # Draw the pendulum rod
         draw.line([origin, (x_end, y_end)], fill=fill_color, width=pendulum_width)
 
-        if pointed:
-            # Draw triangle pointer at the end of the pendulum
-            arrow_length = int(pendulum_width * arrow_size)  # Length of the arrow tip
-            arrow_width = int(pendulum_width * arrow_size)   # Width of the arrow base
-
-            # Calculate the tip point of the triangle
-            tip_x = x_end + arrow_length * np.sin(theta)
-            tip_y = y_end + arrow_length * np.cos(theta)
-
-            # Calculate the base points of the triangle
-            theta_perp = theta + np.pi / 2  # Perpendicular angle
-
-            base_left_x = x_end + (arrow_width / 2) * np.sin(theta_perp)
-            base_left_y = y_end + (arrow_width / 2) * np.cos(theta_perp)
-
-            base_right_x = x_end - (arrow_width / 2) * np.sin(theta_perp)
-            base_right_y = y_end - (arrow_width / 2) * np.cos(theta_perp)
-
-            # Draw the triangle pointer
-            draw.polygon(
-                [(tip_x, tip_y), (base_left_x, base_left_y), (base_right_x, base_right_y)],
-                fill=fill_color
-            )
+        # # Add a pendulum bob
+        # bob_radius = pendulum_width 
+        # draw.ellipse([x_end - bob_radius, y_end - bob_radius, x_end + bob_radius, y_end + bob_radius], fill="black")
 
         # Flip the image
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
@@ -100,14 +81,14 @@ class ImageHandler:
         # Colors, labels, and opacity settings
         color1 = "red"
         color2 = "blue"
-        opacity = 150  # Adjust for desired transparency (0-255)
+        opacity = 245  # Adjust for desired transparency (0-255)
 
         # Create a base image
         combined_img = Image.new("RGBA", (self.image_dim, self.image_dim), (255, 255, 255, 255))
 
         # Render the states with specified colors and opacity
-        img1 = self.render_state(s1, color=color1, opacity=opacity, width=1/100, pointed=False)
-        img2 = self.render_state(s2, color=color2, opacity=opacity, width=1/100, pointed=False)
+        img1 = self.render_state(s1, color=color1, opacity=opacity, width=1/20, pointed=False)
+        img2 = self.render_state(s2, color=color2, opacity=opacity, width=1/20, pointed=False)
 
         # Overlay the two images onto the base image
         combined_img = Image.alpha_composite(combined_img, img1)
@@ -140,7 +121,7 @@ if __name__ == "__main__":
     image_handler = ImageHandler()
 
     # Define pendulum states to render
-    angles = [0, np.pi / 2, np.pi / 2 + 0.025, np.pi / 2 + 0.1, -np.pi / 4]
+    angles = [0, np.pi / 2, np.pi / 2 + 0.025, np.pi / 2 + 0.1, -np.pi / 4, np.pi - 0.1, np.pi]
     states = [
         np.array([np.cos(angle), np.sin(angle), 0.0]) for angle in angles
     ]

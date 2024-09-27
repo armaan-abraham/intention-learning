@@ -26,8 +26,10 @@ from mistral_common.protocol.instruct.messages import (
     ImageURLChunk,
 )
 from mistral_common.protocol.instruct.request import ChatCompletionRequest
+from mistral_common.tokens.tokenizers.tekken import SpecialTokenPolicy
 
 tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json")
+tokenizer.instruct_tokenizer.tokenizer.special_token_policy = SpecialTokenPolicy.IGNORE
 model = Transformer.from_folder(mistral_models_path, max_batch_size=10)
 
 import base64
@@ -56,12 +58,18 @@ from pathlib import Path
 
 
 IMAGE_DIR = Path(__file__).parent.parent.parent / "images" / "overlaid_images_with_goal"
-image_files = list(IMAGE_DIR.glob("*.png"))
-prompt = """You are an evaluation model for the task of ranking arrows based on
-how close they point to a certain goal direction. In this case, the goal is to
-make the arrow point upward. Which arrow, a (the red arrow) or b (the blue
-arrow), is closer to this goal?  Respond only with this winning arrow surrounded
-by asterisks, (*a* or *b*).
+image_files = sorted(list(IMAGE_DIR.glob("*.png")), key=lambda x: int(x.stem.split("_")[-1]))
+prompt = """You are a judge for the classic pendulum control problem. The
+objective is to balance the pendulum upright. You are shown two pendulums. Both
+pendulums pivot around the same point in the center of the image. The red
+pendulum is pendulum **a** and the blue pendulum is pendulum **b**. Is any
+pendulum clearly closer to the goal than the other? No need to think about
+strategies that may be involved in getting the pendulum upright. Just respond
+with the pendulum that best exemplifies an upright pendulum. Respond with one of
+three answers, and surround your answer with curly brackets: {a}, {b}, or
+{none}. Respond with {none} if neither pendulum really exemplifies the goal or
+if both pendulums exemplify the goal to roughly the same degree. Respond only
+with your answer surrounded by curly brackets and nothing else.
 """.replace("\n", " ").replace("  ", " ")
 
 truth = []

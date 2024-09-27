@@ -14,13 +14,14 @@ from pathlib import Path
 import torch
 import os
 from intention_learning.img import ImageHandler
+import enum
+from intention_learning.data import DataHandler
 
-VALID_JUDGMENTS = [-1, 0, 1]
 
 class Judge:
     """A judge model that evaluates pairs of images."""
 
-    def __init__(self, model_path, auth_token, image_handler: ImageHandler):
+    def __init__(self, model_path, auth_token, image_handler: ImageHandler, max_batch_size: int = 40):
         """Initialize the judge model with the specified model path.
 
         Args:
@@ -35,6 +36,8 @@ class Judge:
 
         mistral_models_path = Path.home().joinpath("mistral_models", "Pixtral")
         mistral_models_path.mkdir(parents=True, exist_ok=True)
+        # TODO: encode common part of input once, and store it. Make sure that
+        # this is the same across calls of this function. 
 
         snapshot_download(
             repo_id="mistralai/Pixtral-12B-2409",
@@ -43,42 +46,47 @@ class Judge:
             token=auth_token,
         )
         self.tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json")
-        self.model = Transformer.from_folder(mistral_models_path).eval()
+        self.max_batch_size = max_batch_size
+        self.transformer = Transformer.from_folder(mistral_models_path, max_batch_size=max_batch_size).eval()
         self.image_handler = image_handler
 
 
-    def sample_and_judge(self, data_handler: DataHandler, n_pairs: int = 1e2, batch_size: int = 20, save=True):
+    def sample_and_judge(self, data_handler: DataHandler, n_pairs: int = 1e2, batch_size: int = 20, save=True) -> torch.Tensor:
         """Sample states from the data handler and judge them."""
         states = data_handler.sample_past_states(n_pairs * 2)
-        pairs = list(zip(states[::2], states[1::2]))
-        batches = [pairs[i:i + batch_size] for i in range(0, len(pairs), batch_size)]
+        states1 = states[::2]
+        states2 = states[1::2]
         judgments = []
-        for batch in batches:
-            judgments.extend(self.judge(batch))
-        judgments = torch.concat(judgments)
+        # loop over batches of states
+        for i in range(0, len(states1), batch_size):
+            judgments.extend(self.judge(states1[i:i + batch_size], states2[i:i + batch_size]))
+        judgments = torch.tensor(judgments)
         if save:
             data_handler.save_judgments(judgments)
-        else:
-            return judgments
+        return judgments
 
     def judge(self, states1: torch.Tensor, states2: torch.Tensor) -> torch.Tensor[int]:
+        """ DOES NOT ALLOW TIES. 1 FOR STATE 2, 0 FOR STATE 1. """
         prompt_imgs = self.image_handler.create_overlaid_images(states1, states2)
-        prompt_txt = """You are an evaluation model for the task of ranking arrows based on
-        how close they point to a certain goal direction. In this case, the goal is to
-        make the arrow point upward. Which arrow, a (the red arrow) or b (the blue
-        arrow), is closer to this goal?  Respond only with this winning arrow surrounded
-        by asterisks, (*a* or *b*).
-        """
-        prompt_txt = prompt_txt.replace("\n", " ").replace("\t", "").replace("  ", " ").strip()
-        encoded_requests = [self.get_encoded_completion_request(prompt_txt, prompt_img) for prompt_img in prompt_imgs]
-        responses = self.llm_respond(encoded_requests, max_tokens=6)
-        # TODO: encode common part of input once, and store it. Make sure that
-        # this is the same across calls of this function. 
+        prompt_txt = """You are a judge for the classic pendulum control problem. The
+        objective is to balance the pendulum upright. You are shown two pendulums. Both
+        pendulums pivot around the same point in the center of the image. The red
+        pendulum is pendulum **a** and the blue pendulum is pendulum **b**. Is any
+        pendulum clearly closer to the goal than the other? No need to think about
+        strategies that may be involved in getting the pendulum upright. Just respond
+        with the pendulum that best exemplifies an upright pendulum. Respond with one of
+        three answers, and surround your answer with curly brackets: {a}, {b}, or
+        {none}. Respond with {none} if neither pendulum really exemplifies the goal or
+        if both pendulums exemplify the goal to roughly the same degree. Respond only
+        with your answer surrounded by curly brackets and nothing else.
+        """.replace("\n", " ").replace("  ", " ").replace("\t", "").strip()
+        requests = [self.get_completion_request(prompt_txt, prompt_img) for prompt_img in prompt_imgs]
+        responses = self.llm_respond(requests, max_tokens=8)
         judgments = self.parse_responses(responses)
         return judgments
 
 
-    def get_encoded_completion_request(self, prompt_txt: str, prompt_img: PIL.Image.Image):
+    def get_completion_request(self, prompt_txt: str, prompt_img: PIL.Image.Image):
         """Build the prompt to send to the LLM.
 
         Args:
@@ -100,21 +108,30 @@ class Judge:
                 )
             ]
         )
-        encoded = self.tokenizer.encode_chat_completion(completion_request)
-        return encoded
+        return completion_request
 
     @torch.inference_mode()
-    def llm_respond(self, encoded_requests, max_tokens):
-        encoded_txts = [request.tokens for request in encoded_requests]
+    def llm_respond(self, requests: List[ChatCompletionRequest], max_tokens: int, batch_size: int = 20):
+        assert batch_size <= self.max_batch_size, f"Batch size {batch_size} is larger than the maximum batch size {self.max_batch_size}"
+        encoded_requests = [self.tokenizer.encode_chat_completion(request) for request in requests]
+        tokens = [request.tokens for request in encoded_requests]
         images = [request.images for request in encoded_requests]
-        images_torch: List[List[torch.Tensor]] = []
-        images_torch = [
-            [torch.tensor(im, device=self.model.device, dtype=self.model.dtype) for im in images_for_sample]
-            for images_for_sample in images
-        ]
-        B, V = len(encoded_txts), self.model.args.vocab_size
-        seqlens = [len(x) for x in encoded_txts]
-        # TODO: cache
+
+        responses = []
+        for i in range(0, len(tokens), batch_size):
+            responses_batch, _ = generate(
+                tokens[i:i + batch_size],
+                self.transformer,
+                images=images[i:i + batch_size],
+                max_tokens=max_tokens,
+                temperature=0.0,
+                eos_id=self.tokenizer.instruct_tokenizer.tokenizer.eos_id,
+            )
+
+            for i, response in enumerate(responses_batch):
+                result = self.tokenizer.decode(response)
+
+
 
 
 
@@ -137,3 +154,10 @@ class Judge:
             int: The parsed result (1 if 'b' is better, -1 if 'a' is better, 0 if tie or unclear).
         """
         pass
+
+
+class PromptAndParser:
+    """A prompt and parser for the judge model."""
+    def __init__(self, prompt: str, parser: Callable[[str], int]):
+        self.prompt = prompt
+        self.parser = parser
