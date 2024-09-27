@@ -1,3 +1,3 @@
-# Intention learning from AI feedback
+# Intention learning
 
-Describe your project here.
+Multimodal reinforcement learning from AI feedback.
