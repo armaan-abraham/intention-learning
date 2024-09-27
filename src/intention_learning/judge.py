@@ -11,11 +11,14 @@ from mistral_common.protocol.instruct.messages import (
 from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from huggingface_hub import snapshot_download
 from pathlib import Path
+import torch
 import os
-from img import ImageHandler
+from intention_learning.img import ImageHandler
+
+VALID_JUDGMENTS = [-1, 0, 1]
 
 class Judge:
-    """A judge model that evaluates pairs of images to provide a reward signal."""
+    """A judge model that evaluates pairs of images."""
 
     def __init__(self, model_path, auth_token, image_handler: ImageHandler):
         """Initialize the judge model with the specified model path.
@@ -43,6 +46,36 @@ class Judge:
         self.model = Transformer.from_folder(mistral_models_path).eval()
         self.image_handler = image_handler
 
+
+    def sample_and_judge(self, data_handler: DataHandler, n_pairs: int = 1e2, batch_size: int = 20, save=True):
+        """Sample states from the data handler and judge them."""
+        states = data_handler.sample_past_states(n_pairs * 2)
+        pairs = list(zip(states[::2], states[1::2]))
+        batches = [pairs[i:i + batch_size] for i in range(0, len(pairs), batch_size)]
+        judgments = []
+        for batch in batches:
+            judgments.extend(self.judge(batch))
+        judgments = torch.concat(judgments)
+        if save:
+            data_handler.save_judgments(judgments)
+        else:
+            return judgments
+
+    def judge(self, states1: torch.Tensor, states2: torch.Tensor) -> torch.Tensor[int]:
+        prompt_imgs = self.image_handler.create_overlaid_images(states1, states2)
+        prompt_txt = """You are an evaluation model for the task of ranking arrows based on
+        how close they point to a certain goal direction. In this case, the goal is to
+        make the arrow point upward. Which arrow, a (the red arrow) or b (the blue
+        arrow), is closer to this goal?  Respond only with this winning arrow surrounded
+        by asterisks, (*a* or *b*).
+        """
+        prompt_txt = prompt_txt.replace("\n", " ").replace("\t", "").replace("  ", " ").strip()
+        encoded_requests = [self.get_encoded_completion_request(prompt_txt, prompt_img) for prompt_img in prompt_imgs]
+        responses = self.llm_respond(encoded_requests, max_tokens=6)
+        # TODO: encode common part of input once, and store it. Make sure that
+        # this is the same across calls of this function. 
+        judgments = self.parse_responses(responses)
+        return judgments
 
 
     def get_encoded_completion_request(self, prompt_txt: str, prompt_img: PIL.Image.Image):
@@ -83,24 +116,8 @@ class Judge:
         seqlens = [len(x) for x in encoded_txts]
         # TODO: cache
 
-        
 
 
-
-    def judge(self, states1, states2):
-        prompt_imgs = self.image_handler.create_overlaid_images(states1, states2)
-        prompt_txt = """You are an evaluation model for the task of ranking arrows based on
-        how close they point to a certain goal direction. In this case, the goal is to
-        make the arrow point upward. Which arrow, a (the red arrow) or b (the blue
-        arrow), is closer to this goal?  Respond only with this winning arrow surrounded
-        by asterisks, (*a* or *b*).
-        """
-        prompt_txt = prompt_txt.replace("\n", " ").replace("\t", "").replace("  ", " ").strip()
-        encoded_requests = [self.get_encoded_completion_request(prompt_txt, prompt_img) for prompt_img in prompt_imgs]
-        responses = self.llm_respond(encoded_requests, max_tokens=6)
-        # TODO: encode common part of input once, and store it. Make sure that
-        # this is the same across calls of this function. 
-        return responses
         
 
     def encode_image_for_prompt(self, image: PIL.Image.Image) -> str:
