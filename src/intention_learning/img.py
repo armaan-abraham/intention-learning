@@ -16,10 +16,11 @@ class ImageHandler:
         state: np.ndarray,
         color: str = "black",
         opacity: int = 255,
-        width: float = 0.03,
+        width: float = 0.06,
         length_sub: float = 0.01,
+        corner_radius: int = 10,
     ) -> Image.Image:
-        """Render the pendulum state into an image with specified color and opacity.
+        """Render the pendulum state as a rounded rectangle with a black circle at its base.
 
         Returns:
             PIL.Image.Image: The rendered image of the pendulum.
@@ -27,6 +28,8 @@ class ImageHandler:
         # Extract the angle θ from the state
         cos_theta, sin_theta = state[0], state[1]
         theta = np.arctan2(sin_theta, cos_theta)
+        theta_degrees = np.degrees(-theta)  # Negative because PIL rotates counterclockwise
+
         pendulum_width = int(self.image_dim * width)
 
         # Define pendulum parameters
@@ -35,21 +38,49 @@ class ImageHandler:
             self.image_dim // 2 - self.image_dim * length_sub
         )  # Length of the pendulum rod
 
-        # Calculate the pendulum bob position
-        x_end = origin[0] + length * np.sin(theta)
-        y_end = origin[1] + length * np.cos(theta)
-
-        # Create a transparent image
-        image = Image.new("RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
+        # Create a transparent image for the pendulum
+        pendulum_image = Image.new("RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0))
+        pendulum_draw = ImageDraw.Draw(pendulum_image)
 
         # Apply opacity to the color
         fill_color = ImageColor.getrgb(color) + (opacity,)
 
-        # Draw the pendulum rod
-        draw.line([origin, (x_end, y_end)], fill=fill_color, width=pendulum_width)
+        # Coordinates for the rounded rectangle (drawn pointing rightwards from origin)
+        upper_left = (origin[0] - pendulum_width // 2, origin[1] - pendulum_width // 2)
+        lower_right = (origin[0] + length, origin[1] + pendulum_width // 2)
 
-        # Flip the image
+        # Draw the rounded rectangle
+        pendulum_draw.rounded_rectangle(
+            [upper_left, lower_right],
+            radius=pendulum_width // 2,
+            fill=fill_color
+        )
+
+        # Draw the black circle at the base (origin)
+        circle_radius = pendulum_width // 2
+        circle_bbox = [
+            origin[0] - circle_radius,
+            origin[1] - circle_radius,
+            origin[0] + circle_radius,
+            origin[1] + circle_radius,
+        ]
+        pendulum_draw.ellipse(circle_bbox, fill=(0, 0, 0, opacity))
+
+        # Rotate the pendulum image around the origin
+        rotated_pendulum = pendulum_image.rotate(
+            theta_degrees,
+            center=origin,
+            resample=Image.BICUBIC,
+            expand=False
+        )
+
+        # Create the base image
+        image = Image.new("RGBA", (self.image_dim, self.image_dim), (255, 255, 255, 0))
+
+        # Composite the rotated pendulum onto the base image
+        image = Image.alpha_composite(image, rotated_pendulum)
+
+        # Flip the image vertically to match the coordinate system
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
 
         return image

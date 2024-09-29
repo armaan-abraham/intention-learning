@@ -63,9 +63,10 @@ image_files = list(IMAGE_DIR.glob("*.png"))
 # image_files = sorted(
 #     list(IMAGE_DIR.glob("*.png")), key=lambda x: int(x.stem.split("_")[-1])
 # )
-prompt = """In this image, there are two pendulums rotating around the same pivot.
-Which pendulum is closer to being balanced upright? Respond only with the color 
-of the pendulum that is closer to being balanced upright.
+prompt = """You are a judge for the classic pendulum control problem (e.g. in RL).
+Rank the two pendulums in the image based on which one better exemplifies the goal of
+balancing the pendulum upright. Respond only with the color of the pendulum that is closer
+to being balanced upright (i.e. balanced **above** the pivot point).
 """.replace("\n", " ").replace("  ", " ")
 print(prompt)
 
