@@ -29,13 +29,14 @@ from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.tekken import SpecialTokenPolicy
 
 tokenizer = MistralTokenizer.from_file(f"{mistral_models_path}/tekken.json")
-tokenizer.instruct_tokenizer.tokenizer.special_token_policy = SpecialTokenPolicy.IGNORE
-model = Transformer.from_folder(mistral_models_path, max_batch_size=10)
+tokenizer.instruct_tokenizer.tokenizer.special_token_policy = SpecialTokenPolicy.KEEP
+model = Transformer.from_folder(mistral_models_path, max_batch_size=5)
 
 import base64
 import os
 
 # %%
+
 
 def encode_image(image_path):
     """Encode the image to base64."""
@@ -58,28 +59,26 @@ from pathlib import Path
 
 
 IMAGE_DIR = Path(__file__).parent.parent.parent / "images" / "overlaid_images_with_goal"
-image_files = sorted(list(IMAGE_DIR.glob("*.png")), key=lambda x: int(x.stem.split("_")[-1]))
-prompt = """You are a judge for the classic pendulum control problem. The
-objective is to balance the pendulum upright. You are shown two pendulums. Both
-pendulums pivot around the same point in the center of the image. The red
-pendulum is pendulum **a** and the blue pendulum is pendulum **b**. Is any
-pendulum clearly closer to the goal than the other? No need to think about
-strategies that may be involved in getting the pendulum upright. Just respond
-with the pendulum that best exemplifies an upright pendulum. Respond with one of
-three answers, and surround your answer with curly brackets: {a}, {b}, or
-{none}. Respond with {none} if neither pendulum really exemplifies the goal or
-if both pendulums exemplify the goal to roughly the same degree. Respond only
-with your answer surrounded by curly brackets and nothing else.
+image_files = list(IMAGE_DIR.glob("*.png"))
+# image_files = sorted(
+#     list(IMAGE_DIR.glob("*.png")), key=lambda x: int(x.stem.split("_")[-1])
+# )
+prompt = """In this image, there are two pendulums rotating around the same pivot.
+Which pendulum is closer to being balanced upright? Respond only with the color 
+of the pendulum that is closer to being balanced upright.
 """.replace("\n", " ").replace("  ", " ")
+print(prompt)
 
 truth = []
 predict = []
 results = []
 
-BATCH_SIZE = 10  # Define the batch size
+BATCH_SIZE = 5  # Define the batch size
 
 # Collect batches of image files
-batches = [image_files[i:i + BATCH_SIZE] for i in range(0, len(image_files), BATCH_SIZE)]
+batches = [
+    image_files[i : i + BATCH_SIZE] for i in range(0, len(image_files), BATCH_SIZE)
+]
 
 for batch in batches:
     completion_requests = []
@@ -102,7 +101,9 @@ for batch in batches:
         completion_requests.append(completion_request)
 
     # Encode all requests in the batch
-    encoded_batches = [tokenizer.encode_chat_completion(req) for req in completion_requests]
+    encoded_batches = [
+        tokenizer.encode_chat_completion(req) for req in completion_requests
+    ]
 
     images = [encoded.images for encoded in encoded_batches]
     tokens = [encoded.tokens for encoded in encoded_batches]

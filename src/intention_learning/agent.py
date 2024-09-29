@@ -1,7 +1,7 @@
 # TD3 agent and associated networks
 
-import torch
 import torch.nn as nn
+
 
 class Actor(nn.Module):
     """Actor network for the TD3 agent."""
@@ -29,6 +29,7 @@ class Actor(nn.Module):
         """
         pass  # Implement forward pass
 
+
 class Critic(nn.Module):
     """Critic network for the TD3 agent."""
 
@@ -53,6 +54,7 @@ class Critic(nn.Module):
             torch.Tensor: The estimated Q-value.
         """
         pass  # Implement forward pass
+
 
 class TD3Agent:
     """TD3 agent that interacts with the environment and learns from experiences."""

@@ -5,8 +5,9 @@ from pathlib import Path
 
 from agent import TD3Agent
 from judge import Judge
-from data import DataManager   
+from data import DataHandler
 from img import ImageHandler
+
 
 def main():
     """Main training loop for the RL agent interacting with the environment and using the judge model."""
@@ -18,11 +19,15 @@ def main():
     NUM_TIMESTEPS_PER_TRAIN = 10000
 
     # Initialize the managers
-    data_manager = DataManager(num_envs=NUM_ENVS, seed=SEED, replay_buffer_size=int(2e6))
+    data_handler = DataHandler(
+        num_envs=NUM_ENVS, seed=SEED, replay_buffer_size=int(2e6)
+    )
     image_handler = ImageHandler()
 
     # Get environment specifications
-    state_dim, action_dim, action_low, action_high = data_manager.get_environment_specs()
+    state_dim, action_dim, action_low, action_high = (
+        data_handler.get_environment_specs()
+    )
 
     # Initialize agent, judge, and replay buffer
     agent = TD3Agent(state_dim, action_dim, action_low, action_high)
@@ -31,12 +36,12 @@ def main():
     total_timesteps = 0
 
     # Reset environments and get initial states
-    states = data_manager.reset()
+    states = data_handler.reset()
 
     while total_timesteps < MAX_TIMESTEPS:
         # Collect experience
         states, new_timesteps = collect_experience(
-            data_manager=data_manager,
+            data_handler=data_handler,
             agent=agent,
             judge=judge,
             num_timesteps_per_train=NUM_TIMESTEPS_PER_TRAIN,
@@ -47,35 +52,50 @@ def main():
         total_timesteps += new_timesteps
 
         # Train the agent
-        agent.train(data_manager, iterations=100, batch_size=256)
+        agent.train(data_handler, iterations=100, batch_size=256)
 
     # Save the trained agent
     agent.save(directory=Path("path/to/save/models"))
 
     # Close environments
-    data_manager.close()
+    data_handler.close()
 
-def collect_experience(data_manager: DataManager, agent: TD3Agent, judge: Judge, image_handler: ImageHandler, num_timesteps_per_train: int, judgment_frequency: int, states: np.ndarray, total_timesteps: int):
+
+def collect_experience(
+    data_handler: DataHandler,
+    agent: TD3Agent,
+    judge: Judge,
+    image_handler: ImageHandler,
+    num_timesteps_per_train: int,
+    judgment_frequency: int,
+    states: np.ndarray,
+    total_timesteps: int,
+):
     """Collect experiences from the environment and store them in the replay buffer."""
     timesteps_collected = 0
 
     for step in range(num_timesteps_per_train):
         actions = select_actions(agent, states, total_timesteps)
 
-        next_states, rewards_ground_truth, dones = data_manager.step_environments(actions)
+        next_states, rewards_ground_truth, dones = data_handler.step_environments(
+            actions
+        )
 
         # Obtain rewards from judge at specified frequency
         if step % judgment_frequency == 0:
-            rewards = data_manager.get_rewards(judge, image_handler)
+            rewards = data_handler.get_rewards(judge, image_handler)
         else:
-            rewards = np.zeros(data_manager.get_num_envs())
+            rewards = np.zeros(data_handler.get_num_envs())
 
-        data_manager.save_experiences(states, actions, next_states, rewards, rewards_ground_truth, dones)
+        data_handler.save_experiences(
+            states, actions, next_states, rewards, rewards_ground_truth, dones
+        )
 
         states = next_states
-        timesteps_collected += data_manager.get_num_envs()
+        timesteps_collected += data_handler.get_num_envs()
 
     return states, timesteps_collected
+
 
 def select_actions(agent: TD3Agent, states: np.ndarray, total_timesteps: int):
     """Select actions with exploration noise."""
