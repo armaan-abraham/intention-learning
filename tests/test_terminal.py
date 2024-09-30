@@ -45,7 +45,7 @@ def main():
         angles = torch.rand(n_states) * 2 * torch.pi
         velocities = torch.rand(n_states) * 16 - 8
         states = torch.stack([torch.cos(angles), torch.sin(angles), velocities], dim=1)
-        data_handler.store_states(states)
+        data_handler.save_states(states)
 
         n_epochs = 100
         n_judgments_per_epoch = 200

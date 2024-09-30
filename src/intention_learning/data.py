@@ -3,6 +3,7 @@ import torch
 from typing import Mapping, Sequence, Dict, Tuple, Type
 from pathlib import Path
 from datetime import datetime
+from gymnasium.vector import AsyncVectorEnv
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
@@ -89,7 +90,7 @@ class Buffer:
 def validate_states(states: torch.Tensor):
     assert torch.all(torch.abs(states[:, 0]) <= 1), f"Invalid state at dim 0"
     assert torch.all(torch.abs(states[:, 1]) <= 1), f"Invalid state at dim 1"
-    assert torch.all(torch.abs(states[:, 2]) <= 8), f"Invalid state at dim 3"
+    assert torch.all(torch.abs(states[:, 2]) <= 1), f"Invalid state at dim 3"
 
 
 class StateBuffer(Buffer):
@@ -106,6 +107,21 @@ class StateBuffer(Buffer):
     def validate(self, new_elems: Dict[str, torch.Tensor]):
         states = new_elems["states"]
         validate_states(states)
+
+class ExperienceBuffer(Buffer):
+    def __init__(self, max_size: int, device: torch.device):
+        super().__init__(max_size, device, var_dtypes={"states": torch.float32, "actions": torch.float32, "next_states": torch.float32, "rewards": torch.float32, "dones": torch.bool}, var_shapes={"states": (3,), "actions": (3,), "next_states": (3,), "rewards": (1,), "dones": (1,)})
+
+    def validate(self, new_elems: Dict[str, torch.Tensor]):
+        states, actions, next_states, rewards, dones = (
+            new_elems["states"],
+            new_elems["actions"],
+            new_elems["next_states"],
+            new_elems["rewards"],
+            new_elems["dones"],
+        )
+        validate_states(states)
+        validate_states(next_states)
 
 
 class JudgmentBuffer(Buffer):
@@ -133,11 +149,52 @@ class JudgmentBuffer(Buffer):
         validate_states(states2)
         assert torch.all((judgments == 0) | (judgments == 1)), f"Invalid judgment value"
 
+class CyclingEnvHandler:
+    def __init__(self, num_envs: int, device: torch.device):
+        self.envs = AsyncVectorEnv([lambda: gym.make("Pendulum-v1") for i in range(NUM_ENVS)])
+        self.device = device
+    
+    def normalize_states(self, states: torch.Tensor):
+        states[:, 2] /= 8
+    
+    def reset(self, seed: int = None) -> torch.Tensor:
+        kwargs = {"seed": seed} if seed is not None else {}
+        states = torch.tensor(self.envs.reset(**kwargs)[0]["observation"], device=self.device)
+        self.normalize_states(states)
+        return states
+    
+    def step(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        actions = actions.cpu().numpy()
+        next_states, rewards, terminated, truncated, info = self.envs.step(actions)
+        dones = np.logical_or(terminated, truncated)
+        if np.any(dones):
+            for i in range(self.num_envs):
+                if dones[i]:
+                    next_states[i] = info["final_observation"][i]["observation"]
+        next_states = torch.tensor(next_states, device=self.device)
+        self.normalize_states(next_states)
+        return next_states, torch.tensor(dones, device=self.device)
+    
+    def select_random_actions(self) -> torch.Tensor:
+        # TODO: test this
+        return torch.tensor(self.envs.action_space.sample(), device=self.device)
+    
+    def get_environment_specs(self):
+        observation_space = self.envs.single_observation_space["observation"]
+
+        state_dim = observation_space.shape[0]
+        action_dim = self.envs.single_action_space.shape[0]
+        action_low = self.envs.single_action_space.low
+        action_high = self.envs.single_action_space.high
+
+        assert action_low == -action_high
+        return state_dim, action_dim, action_low, action_high
+        
 
 class DataHandler:
     """Handles environment initialization, data generation, and storage."""
 
-    def __init__(self, state_buffer: StateBuffer, judgment_buffer: JudgmentBuffer):
+    def __init__(self, state_buffer: StateBuffer = None, judgment_buffer: JudgmentBuffer = None, experience_buffer: ExperienceBuffer = None, env_handler: CyclingEnvHandler = None):
         """Initialize the environments and relevant parameters.
 
         Args:
@@ -149,14 +206,15 @@ class DataHandler:
         # ...
         self.state_buffer = state_buffer
         self.judgment_buffer = judgment_buffer
-        # set id as current timestamp
+        self.experience_buffer = experience_buffer
+        self.env_handler = env_handler
         self.id = datetime.now().strftime("%Y%m%d%H%M%S")
         print(f"Data handler initialized with id {self.id}")
 
     def sample_past_states(self, n_states: int) -> torch.Tensor:
         return self.state_buffer.sample(n_states)["states"]
 
-    def store_states(self, states: torch.Tensor):
+    def save_states(self, states: torch.Tensor):
         self.state_buffer.add(states=states)
 
     def save_judgments(
@@ -170,21 +228,29 @@ class DataHandler:
             judgments (torch.Tensor): The judgments.
         """
         self.judgment_buffer.add(states1=states1, states2=states2, judgments=judgments)
+    
+    def save_experiences(self, states: torch.Tensor, actions: torch.Tensor, next_states: torch.Tensor, rewards: torch.Tensor, dones: torch.Tensor):
+        self.experience_buffer.add(states=states, actions=actions, next_states=next_states, rewards=rewards, dones=dones)
+    
+    def step_environments(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        next_states, dones = self.env_handler.step(actions)
+        return next_states, dones
 
     def sample_past_judgments(
         self, n_samples: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         result = self.judgment_buffer.sample(n_samples)
         return result["states1"], result["states2"], result["judgments"]
-
-    def save_model(self, model: torch.nn.Module):
-        # make directory if it doesn't exist
-        model_dir = MODELS_DIR / self.id
-        if not model_dir.exists():
-            model_dir.mkdir(parents=True)
-        model_name = model.__class__.__name__
-        # save the model
-        torch.save(model.state_dict(), model_dir / f"{model_name}.pth")
+    
+    def sample_past_experiences(self, n_samples: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        sampled = self.experience_buffer.sample(n_samples)
+        return sampled["states"], sampled["actions"], sampled["next_states"], sampled["rewards"], sampled["dones"]
+    
+    def reset_envs(self, seed: int = None) -> torch.Tensor:
+        return self.env_handler.reset(seed)
+    
+    def select_random_actions(self) -> torch.Tensor:
+        return self.env_handler.select_random_actions()
     
     @classmethod
     def load_model(cls, id: str, model_cls: Type[torch.nn.Module], model_name: str = None) -> torch.nn.Module:
@@ -199,7 +265,16 @@ class DataHandler:
         model = model_cls()
         model.load_state_dict(torch.load(model_path))
         return model
-    
+
+    def save_model(self, model: torch.nn.Module):
+        # make directory if it doesn't exist
+        model_dir = MODELS_DIR / self.id
+        if not model_dir.exists():
+            model_dir.mkdir(parents=True)
+        model_name = model.__class__.__name__
+        # save the model
+        torch.save(model.state_dict(), model_dir / f"{model_name}.pth")
+
     @classmethod
     def load_buffer(cls, id: str, buffer_cls: Type[Buffer], device: torch.device) -> Buffer:
         # TODO: this is broken when dtypes are not float32
@@ -279,141 +354,5 @@ class DataHandler:
         torch.save(data, buffer_dir / f"{buffer.name}.pt")
 
     def get_environment_specs(self):
-        """Retrieve environment specifications such as state dimensions and action ranges.
-
-        Returns:
-            Tuple:
-                - state_dim (int): Dimension of the state space.
-                - action_dim (int): Dimension of the action space.
-                - action_low (np.ndarray): Lower bound of action values.
-                - action_high (np.ndarray): Upper bound of action values.
-        """
-        pass
-
-    def reset(self):
-        """Reset the environments and return the initial preprocessed states.
-
-        Returns:
-            np.ndarray: The initial preprocessed states after reset.
-        """
-        pass
-
-    def step_environments(self, actions):
-        """Take a step in all environments with the provided actions.
-
-        Args:
-            actions (np.ndarray): Actions to take in each environment.
-
-        Returns:
-            Tuple:
-                - next_states (np.ndarray): The next preprocessed states.
-                - rewards_ground_truth (np.ndarray): Rewards received.
-                - dones (np.ndarray): Whether each environment is done.
-        """
-        # ...
-        dones = self._reset_done_environments(dones)
-        # ...
-        # STILL TODO
-        pass
-
-    def _preprocess_state(self, state):
-        """Preprocess the state before feeding it to the agent.
-
-        Args:
-            state (np.ndarray): The raw state from the environment.
-
-        Returns:
-            np.ndarray: The preprocessed state.
-        """
-        pass  # Internal method for state preprocessing
-
-    def render_state(self, state):
-        """Render the state into an image.
-
-        Args:
-            state (np.ndarray): The state to render.
-
-        Returns:
-            PIL.Image.Image: The rendered image.
-        """
-        pass
-
-    def create_labeled_pair(self, img1, img2, target_width=150):
-        """Create a labeled image pair from two images.
-
-        Args:
-            img1 (PIL.Image.Image): First image.
-            img2 (PIL.Image.Image): Second image.
-            target_width (int, optional): The width to which images are resized.
-
-        Returns:
-            PIL.Image.Image: Combined labeled image pair.
-        """
-        pass
-
-    def _initialize_replay_buffer(self, max_size):
-        """Initialize the replay buffer.
-
-        Args:
-            max_size (int): Maximum size of the replay buffer.
-        """
-        pass  # Initialize ReplayBuffer instance
-
-    def add_to_replay_buffer(self, state, action, next_state, reward, done):
-        """Add experiences to the replay buffer.
-
-        Args:
-            state (np.ndarray): Current state.
-            action (np.ndarray): Action taken.
-            next_state (np.ndarray): Next state.
-            reward (float): Reward received.
-            done (bool): Whether the episode ended.
-        """
-        pass
-
-    def sample_from_replay_buffer(self, batch_size):
-        """Sample a batch from the replay buffer.
-
-        Args:
-            batch_size (int): Number of samples to retrieve.
-
-        Returns:
-            Tuple[torch.Tensor]: Batches of states, actions, next_states, rewards, dones.
-        """
-        pass
-
-    def _reset_done_environments(self, dones):
-        """Reset environments that are done and update internal state.
-
-        Args:
-            dones (np.ndarray): Boolean array indicating which environments are done.
-        """
-        pass
-
-    def get_num_envs(self):
-        """Get the number of parallel environments.
-
-        Returns:
-            int: Number of environments.
-        """
-        pass
-
-    def save_experiences(
-        self, states, actions, next_states, rewards, gt_rewards, dones
-    ):
-        """
-        Save experiences to relevant files and replay buffer.
-
-        Args:
-            states (np.ndarray): The states.
-            actions (np.ndarray): The actions.
-            next_states (np.ndarray): The next states.
-            rewards (np.ndarray): The rewards.
-            gt_rewards (np.ndarray): The ground truth rewards.
-            dones (np.ndarray): The dones.
-        """
-        pass
-
-    def close(self):
-        """Close all environments properly."""
-        pass
+        return self.env_handler.get_environment_specs()
+        

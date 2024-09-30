@@ -123,7 +123,7 @@ class ImageHandler:
 
         return combined_img
     
-    def visualize_terminal_model(self, terminal_model, device):
+    def visualize_terminal_model(self, terminal_model, device, with_peak: bool = False):
         """Visualize the terminal model's output with respect to the angle around the pivot point.
 
         Args:
@@ -162,7 +162,7 @@ class ImageHandler:
 
         # Generate angles from 0 to 2π
         num_points = 1500
-        angles = torch.linspace(0, 2 * np.pi, steps=num_points, device=device)
+        angles = torch.linspace(-np.pi, np.pi, steps=num_points, device=device)
         cos_angles = torch.cos(angles)
         sin_angles = torch.sin(angles)
         velocities = torch.zeros_like(angles)
@@ -179,10 +179,11 @@ class ImageHandler:
 
         # Get the rocket color palette from seaborn
         rocket_palette = sns.color_palette("rocket", as_cmap=True)
+        angles = angles.cpu().numpy()
+        angles = angles - np.pi / 2
 
         # Draw radial lines
-        for i, angle in enumerate(angles.cpu().numpy()):
-            angle = angle - np.pi / 2  # Adjust angle to start from the top
+        for i, angle in enumerate(angles):
             value = normalized_values[i]
             color = tuple(int(c * 255) for c in rocket_palette(value)[:3])  # Convert to RGB
             end_point = (
@@ -190,6 +191,17 @@ class ImageHandler:
                 center[1] + radius * np.sin(angle)
             )
             draw.line([center, end_point], fill=color, width=2)
+
+        if with_peak:
+            weights = normalized_values
+            assert np.all(weights >= 0)
+            peak_angle = (angles * weights).sum() / weights.sum()
+
+            peak_end_point = (
+                center[0] + radius * np.cos(peak_angle),
+                center[1] + radius * np.sin(peak_angle)
+            )
+            draw.line([center, peak_end_point], fill="green", width=4)
 
         # Add title at the top center, ensuring it doesn't overlap with the circle
         title_position = (self.image_dim // 2, title_padding // 2)
