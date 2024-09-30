@@ -9,9 +9,11 @@ class TerminalNetwork(nn.Module):
     def __init__(self):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(3, 16),
+            nn.Linear(3, 8),
             nn.ReLU(),
-            nn.Linear(16, 1),
+            nn.Linear(8, 8),
+            nn.ReLU(),
+            nn.Linear(8, 1),
         )
 
     def forward(self, state: torch.Tensor) -> torch.Tensor:
@@ -21,8 +23,8 @@ class TerminalNetwork(nn.Module):
 class TerminalModel:
     """Model of the terminal (instrinsic) value of states."""
 
-    def __init__(self, data_handler: DataHandler, device: torch.device, lr: float = 5e-3):
-        self.network = TerminalNetwork().to(device)
+    def __init__(self, data_handler: DataHandler, device: torch.device, lr: float = 5e-3, network: nn.Module = None):
+        self.network = network if network is not None else TerminalNetwork().to(device)
         self.data_handler = data_handler
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=lr, amsgrad=True

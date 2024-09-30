@@ -21,17 +21,11 @@ import base64
 
 class PromptAndParser:
     prompt = (
-        """You are a judge for the classic pendulum control problem. The
-    objective is to balance the pendulum upright. You are shown two pendulums. Both
-    pendulums pivot around the same point in the center of the image. The red
-    pendulum is pendulum **a** and the blue pendulum is pendulum **b**. Is any
-    pendulum clearly closer to the goal than the other? No need to think about
-    strategies that may be involved in getting the pendulum upright. Just respond
-    with the pendulum that best exemplifies an upright pendulum. Respond with one of
-    three answers, and surround your answer with curly brackets: {a}, {b}, or
-    {none}. Respond with {none} if neither pendulum really exemplifies the goal or
-    if both pendulums exemplify the goal to roughly the same degree. Respond only
-    with your answer surrounded by curly brackets and nothing else.
+    """In this image, there are two pendulums (green and blue) pivoting
+    around the same point in the middle (the black circle).  Which pendulum's
+    endpoint (i.e., the end opposite the pivot) is higher? Respond only with the
+    color of the pendulum whose endpoint is higher and surround your answer with
+    curly braces, e.g., {green} or {blue}.
     """.replace("\n", " ")
         .replace("  ", " ")
         .replace("\t", "")
@@ -39,16 +33,14 @@ class PromptAndParser:
     )
 
     def clean_response(self, response: str) -> str:
-        return response.replace(" ", "").replace("\n", "")
+        return response.replace(" ", "").replace("\n", "").lower()
 
     def parse_response(self, response: str) -> int | None:
         cleaned = self.clean_response(response)
-        if cleaned == "{a}":
+        if cleaned == "{green}":
             return 0
-        elif cleaned == "{b}":
+        elif cleaned == "{blue}":
             return 1
-        elif cleaned == "{none}":
-            return None
         else:
             raise ValueError(f"Invalid response: {response}")
 
@@ -116,12 +108,7 @@ class Judge:
             judgments.extend(
                 self.judge(states1[i : i + batch_size], states2[i : i + batch_size])
             )
-        if discard_ties:
-            valid_idx = [j is not None for j in judgments]
-            judgments = [judgments[i] for i in valid_idx]
-            states1 = states1[valid_idx]
-            states2 = states2[valid_idx]
-        judgments = torch.tensor(judgments, dtype=torch.int8)[:, None]
+        judgments = torch.tensor(judgments, dtype=torch.float32)[:, None]
         if save:
             self.data_handler.save_judgments(states1, states2, judgments)
         return states1, states2, judgments
@@ -140,7 +127,7 @@ class Judge:
         judgments = [
             self.prompt_and_parser.parse_response(response) for response in responses
         ]
-        return judgments, prompt_imgs
+        return judgments
 
     def get_completion_request(
         self, prompt_txt: str, prompt_img: PIL.Image.Image
@@ -211,4 +198,4 @@ def validate_judgments(
 ) -> bool:
     terminal_1 = -torch.arctan2(states1[:, 1], states1[:, 0]) ** 2
     terminal_2 = -torch.arctan2(states2[:, 1], states2[:, 0]) ** 2
-    return judgments[:, 0] == (terminal_2 > terminal_1).to(torch.int8)
+    return judgments[:, 0] == (terminal_2 > terminal_1).to(torch.int32)

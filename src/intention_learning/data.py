@@ -2,7 +2,7 @@
 import torch
 from typing import Mapping, Sequence, Dict, Tuple, Type
 from pathlib import Path
-import uuid
+from datetime import datetime
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
@@ -19,6 +19,7 @@ if not IMAGES_DIR.exists():
     IMAGES_DIR.mkdir(parents=True)
 
 
+# TODO: allow initilaization iwth an id
 class Buffer:
     name = "generic"
 
@@ -117,7 +118,7 @@ class JudgmentBuffer(Buffer):
             var_dtypes={
                 "states1": torch.float32,
                 "states2": torch.float32,
-                "judgments": torch.int8,
+                "judgments": torch.float32,
             },
             var_shapes={"states1": (3,), "states2": (3,), "judgments": (1,)},
         )
@@ -148,7 +149,8 @@ class DataHandler:
         # ...
         self.state_buffer = state_buffer
         self.judgment_buffer = judgment_buffer
-        self.id = str(uuid.uuid4())[:8]
+        # set id as current timestamp
+        self.id = datetime.now().strftime("%Y%m%d%H%M%S")
         print(f"Data handler initialized with id {self.id}")
 
     def sample_past_states(self, n_states: int) -> torch.Tensor:
@@ -175,17 +177,32 @@ class DataHandler:
         result = self.judgment_buffer.sample(n_samples)
         return result["states1"], result["states2"], result["judgments"]
 
-    def save_model(self, model: torch.nn.Module, model_name: str):
+    def save_model(self, model: torch.nn.Module):
         # make directory if it doesn't exist
         model_dir = MODELS_DIR / self.id
         if not model_dir.exists():
             model_dir.mkdir(parents=True)
+        model_name = model.__class__.__name__
         # save the model
         torch.save(model.state_dict(), model_dir / f"{model_name}.pth")
-
+    
+    @classmethod
+    def load_model(cls, id: str, model_cls: Type[torch.nn.Module], model_name: str = None) -> torch.nn.Module:
+        model_dir = MODELS_DIR / id
+        if not model_dir.exists():
+            raise FileNotFoundError(f"Model directory {model_dir} does not exist.")
+        # get string name of class
+        model_name = model_name if model_name is not None else model_cls.__name__
+        model_path = model_dir / f"{model_name}.pth"
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file {model_path} does not exist.")
+        model = model_cls()
+        model.load_state_dict(torch.load(model_path))
+        return model
     
     @classmethod
     def load_buffer(cls, id: str, buffer_cls: Type[Buffer], device: torch.device) -> Buffer:
+        # TODO: this is broken when dtypes are not float32
         """Load a buffer from disk.
 
         Args:

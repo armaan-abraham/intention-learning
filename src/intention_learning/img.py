@@ -1,10 +1,12 @@
 # Image handling functions
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageColor
+from PIL import Image, ImageDraw, ImageColor, ImageFont
 from pathlib import Path
 from itertools import permutations
 from typing import List
+import torch
+import seaborn as sns
 
 
 class ImageHandler:
@@ -16,7 +18,7 @@ class ImageHandler:
         state: np.ndarray,
         color: str = "black",
         opacity: int = 255,
-        width: float = 0.06,
+        width: float = 0.1,
         length_sub: float = 0.01,
         corner_radius: int = 10,
     ) -> Image.Image:
@@ -27,7 +29,7 @@ class ImageHandler:
         """
         # Extract the angle θ from the state
         cos_theta, sin_theta = state[0], state[1]
-        theta = np.arctan2(sin_theta, cos_theta)
+        theta = np.arctan2(sin_theta, cos_theta) - np.pi / 2
         theta_degrees = np.degrees(-theta)  # Negative because PIL rotates counterclockwise
 
         pendulum_width = int(self.image_dim * width)
@@ -80,9 +82,6 @@ class ImageHandler:
         # Composite the rotated pendulum onto the base image
         image = Image.alpha_composite(image, rotated_pendulum)
 
-        # Flip the image vertically to match the coordinate system
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-
         return image
 
     def overlay_states_on_img(self, s1: np.ndarray, s2: np.ndarray) -> Image.Image:
@@ -109,12 +108,12 @@ class ImageHandler:
         # Render the states with specified colors and opacity
         img1 = self.render_state(
             s1,
-            color=color2,
+            color=color1,
             opacity=opacity,
         )
         img2 = self.render_state(
             s2,
-            color=color1,
+            color=color2,
             opacity=opacity,
         )
 
@@ -123,6 +122,81 @@ class ImageHandler:
         combined_img = Image.alpha_composite(combined_img, img2)
 
         return combined_img
+    
+    def visualize_terminal_model(self, terminal_model, device):
+        """Visualize the terminal model's output with respect to the angle around the pivot point.
+
+        Args:
+            terminal_model (TerminalModel): The trained terminal model.
+            device (torch.device): The device to perform computations on.
+            title (str): The title for the visualization. Defaults to "Terminal Model Visualization".
+
+        Returns:
+            PIL.Image.Image: The visualization image.
+        """
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+        import seaborn as sns
+
+        # Set font size
+        font_size = 18
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except IOError:
+            font = ImageFont.load_default()
+
+        # Estimate title height (font size plus some padding)
+        title_height = int(font_size * 1.5)
+        title_padding = 6  # Space between title and circle
+        total_padding = title_height + title_padding
+
+        # Create a new image with a white background, adjusted for the title height
+        img_height = self.image_dim + total_padding
+        img = Image.new("RGB", (self.image_dim, img_height), "white")
+
+        draw = ImageDraw.Draw(img)
+
+        # Adjust center for the circle to be below the title
+        center = (self.image_dim // 2, (self.image_dim // 2) + total_padding)
+        radius = self.image_dim // 2 - 10  # Padding of 10 pixels
+
+        # Generate angles from 0 to 2π
+        num_points = 1500
+        angles = torch.linspace(0, 2 * np.pi, steps=num_points, device=device)
+        cos_angles = torch.cos(angles)
+        sin_angles = torch.sin(angles)
+        velocities = torch.zeros_like(angles)
+        states = torch.stack([cos_angles, sin_angles, velocities], dim=1).to(device)
+
+        # Get terminal model predictions
+        with torch.no_grad():
+            values = terminal_model.predict(states).squeeze().cpu().numpy()
+
+        # Normalize values to [0, 1] for color mapping
+        min_value = np.min(values)
+        max_value = np.max(values)
+        normalized_values = (values - min_value) / (max_value - min_value + 1e-8)
+
+        # Get the rocket color palette from seaborn
+        rocket_palette = sns.color_palette("rocket", as_cmap=True)
+
+        # Draw radial lines
+        for i, angle in enumerate(angles.cpu().numpy()):
+            angle = angle - np.pi / 2  # Adjust angle to start from the top
+            value = normalized_values[i]
+            color = tuple(int(c * 255) for c in rocket_palette(value)[:3])  # Convert to RGB
+            end_point = (
+                center[0] + radius * np.cos(angle),
+                center[1] + radius * np.sin(angle)
+            )
+            draw.line([center, end_point], fill=color, width=2)
+
+        # Add title at the top center, ensuring it doesn't overlap with the circle
+        title_position = (self.image_dim // 2, title_padding // 2)
+        title = "Terminal value vs angle"
+        draw.text(title_position, title, fill="black", font=font, anchor="mt")
+
+        return img
 
 
 if __name__ == "__main__":
