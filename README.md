@@ -2,16 +2,10 @@
 
 Multimodal reinforcement learning from AI feedback.
 
-<div style="display: flex; justify-content: space-between;">
-  <figure style="width: 50%;">
-    <img src="data/images/terminal_model_visualization_e3359666.png" alt="Terminal model visualization" style="width: 100%;">
-    <figcaption>Reward model visualization, built from LLM-generated preferences over images of pendulum positions.</figcaption>
-  </figure>
-  <figure style="width: 50%;">
-    <img src="data/videos/episode_4.gif" alt="Animation" style="width: 100%;">
-    <figcaption>Agent's behavior when trained from the LLM-generated preferences and reward model.</figcaption>
-  </figure>
-</div>
+| Reward model visualization | Agent's behavior |
+|:--------------------------:|:----------------:|
+| ![Terminal model visualization](data/images/terminal_model_visualization_e3359666.png) | ![Animation](data/videos/episode_4.gif) |
+| Reward model visualization, built from LLM-generated preferences over images of pendulum positions. | Agent's behavior when trained from the LLM-generated preferences and reward model. |
 
 ## Overview
 Here, we use multimodal LLMs to act as a judge for determining a reward signal
