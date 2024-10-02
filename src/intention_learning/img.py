@@ -1,12 +1,12 @@
 # Image handling functions
 
-import numpy as np
-from PIL import Image, ImageDraw, ImageColor, ImageFont
-from pathlib import Path
 from itertools import permutations
-from typing import List
-import torch
+from pathlib import Path
+
+import numpy as np
 import seaborn as sns
+import torch
+from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 
 class ImageHandler:
@@ -30,7 +30,9 @@ class ImageHandler:
         # Extract the angle θ from the state
         cos_theta, sin_theta = state[0], state[1]
         theta = np.arctan2(sin_theta, cos_theta) - np.pi / 2
-        theta_degrees = np.degrees(-theta)  # Negative because PIL rotates counterclockwise
+        theta_degrees = np.degrees(
+            -theta
+        )  # Negative because PIL rotates counterclockwise
 
         pendulum_width = int(self.image_dim * width)
 
@@ -41,7 +43,9 @@ class ImageHandler:
         )  # Length of the pendulum rod
 
         # Create a transparent image for the pendulum
-        pendulum_image = Image.new("RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0))
+        pendulum_image = Image.new(
+            "RGBA", (self.image_dim, self.image_dim), (0, 0, 0, 0)
+        )
         pendulum_draw = ImageDraw.Draw(pendulum_image)
 
         # Apply opacity to the color
@@ -53,9 +57,7 @@ class ImageHandler:
 
         # Draw the rounded rectangle
         pendulum_draw.rounded_rectangle(
-            [upper_left, lower_right],
-            radius=pendulum_width // 2,
-            fill=fill_color
+            [upper_left, lower_right], radius=pendulum_width // 2, fill=fill_color
         )
 
         # Draw the black circle at the base (origin)
@@ -70,10 +72,7 @@ class ImageHandler:
 
         # Rotate the pendulum image around the origin
         rotated_pendulum = pendulum_image.rotate(
-            theta_degrees,
-            center=origin,
-            resample=Image.BICUBIC,
-            expand=False
+            theta_degrees, center=origin, resample=Image.BICUBIC, expand=False
         )
 
         # Create the base image
@@ -122,7 +121,7 @@ class ImageHandler:
         combined_img = Image.alpha_composite(combined_img, img2)
 
         return combined_img
-    
+
     def visualize_terminal_model(self, terminal_model, device, with_peak: bool = False):
         """Visualize the terminal model's output with respect to the angle around the pivot point.
 
@@ -134,15 +133,16 @@ class ImageHandler:
         Returns:
             PIL.Image.Image: The visualization image.
         """
-        from PIL import Image, ImageDraw, ImageFont
         import numpy as np
-        import seaborn as sns
+        from PIL import Image, ImageDraw
 
         # Set font size
         font_size = 18
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-        except IOError:
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+            )
+        except OSError:
             font = ImageFont.load_default()
 
         # Estimate title height (font size plus some padding)
@@ -185,10 +185,12 @@ class ImageHandler:
         # Draw radial lines
         for i, angle in enumerate(angles):
             value = normalized_values[i]
-            color = tuple(int(c * 255) for c in rocket_palette(value)[:3])  # Convert to RGB
+            color = tuple(
+                int(c * 255) for c in rocket_palette(value)[:3]
+            )  # Convert to RGB
             end_point = (
-                center[0] + radius * np.cos(angle),
-                center[1] + radius * np.sin(angle)
+                center[0] + radius * -np.cos(angle),
+                center[1] + radius * np.sin(angle),
             )
             draw.line([center, end_point], fill=color, width=2)
 
@@ -199,13 +201,16 @@ class ImageHandler:
 
             peak_end_point = (
                 center[0] + radius * np.cos(peak_angle),
-                center[1] + radius * np.sin(peak_angle)
+                center[1] + radius * np.sin(peak_angle),
             )
             draw.line([center, peak_end_point], fill="green", width=4)
 
+        # flip horizontally
+        # img = img.transpose(Image.FLIP_LEFT_RIGHT)
+
         # Add title at the top center, ensuring it doesn't overlap with the circle
         title_position = (self.image_dim // 2, title_padding // 2)
-        title = "Terminal value vs angle"
+        title = "Terminal value (reward) vs angle"
         draw.text(title_position, title, fill="black", font=font, anchor="mt")
 
         return img
@@ -213,6 +218,7 @@ class ImageHandler:
 
 if __name__ == "__main__":
     from pathlib import Path
+
     import numpy as np
 
     out_dir = Path(__file__).parent.parent.parent / "images"

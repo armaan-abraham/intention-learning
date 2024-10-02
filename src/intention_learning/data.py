@@ -1,9 +1,11 @@
 # Data handling and environment management
-import torch
-from typing import Mapping, Sequence, Dict, Tuple, Type
-from pathlib import Path
 from datetime import datetime
-from gymnasium.vector import AsyncVectorEnv
+from pathlib import Path
+from typing import Dict, Mapping, Sequence, Tuple, Type
+
+import gymnasium as gym
+import numpy as np
+import torch
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
@@ -69,7 +71,7 @@ class Buffer:
         if hasattr(self, "validate"):
             self.validate(new_elems)
         for var_name, tensor in new_elems.items():
-            getattr(self, var_name)[self.ptr : self.ptr + n_new_elems] = tensor
+            getattr(self, var_name)[self.ptr : self.ptr + n_new_elems] = tensor.detach()
         self.ptr = (self.ptr + n_new_elems) % self.max_size
         self.size = min(self.size + n_new_elems, self.max_size)
 
@@ -77,20 +79,23 @@ class Buffer:
         assert isinstance(n_samples, int) and n_samples > 0
         assert (
             n_samples <= self.size
-        ), f"Sampling more elements than stored is not allowed."
+        ), "Sampling more elements than stored is not allowed."
         indices = torch.randperm(self.size)[:n_samples]
         return {
             var_name: getattr(self, var_name)[indices] for var_name in self.var_names
         }
-    
+
     def all(self) -> Dict[str, torch.Tensor]:
-        return {var_name: getattr(self, var_name)[: self.size] for var_name in self.var_names}
+        return {
+            var_name: getattr(self, var_name)[: self.size]
+            for var_name in self.var_names
+        }
 
 
 def validate_states(states: torch.Tensor):
-    assert torch.all(torch.abs(states[:, 0]) <= 1), f"Invalid state at dim 0"
-    assert torch.all(torch.abs(states[:, 1]) <= 1), f"Invalid state at dim 1"
-    assert torch.all(torch.abs(states[:, 2]) <= 1), f"Invalid state at dim 3"
+    assert torch.all(torch.abs(states[:, 0]) <= 1), "Invalid state at dim 0"
+    assert torch.all(torch.abs(states[:, 1]) <= 1), "Invalid state at dim 1"
+    assert torch.all(torch.abs(states[:, 2]) <= 1), "Invalid state at dim 3"
 
 
 class StateBuffer(Buffer):
@@ -108,9 +113,27 @@ class StateBuffer(Buffer):
         states = new_elems["states"]
         validate_states(states)
 
+
 class ExperienceBuffer(Buffer):
     def __init__(self, max_size: int, device: torch.device):
-        super().__init__(max_size, device, var_dtypes={"states": torch.float32, "actions": torch.float32, "next_states": torch.float32, "rewards": torch.float32, "dones": torch.bool}, var_shapes={"states": (3,), "actions": (3,), "next_states": (3,), "rewards": (1,), "dones": (1,)})
+        super().__init__(
+            max_size,
+            device,
+            var_dtypes={
+                "states": torch.float32,
+                "actions": torch.float32,
+                "next_states": torch.float32,
+                "rewards": torch.float32,
+                "dones": torch.bool,
+            },
+            var_shapes={
+                "states": (3,),
+                "actions": (1,),
+                "next_states": (3,),
+                "rewards": (1,),
+                "dones": (1,),
+            },
+        )
 
     def validate(self, new_elems: Dict[str, torch.Tensor]):
         states, actions, next_states, rewards, dones = (
@@ -147,40 +170,44 @@ class JudgmentBuffer(Buffer):
         )
         validate_states(states1)
         validate_states(states2)
-        assert torch.all((judgments == 0) | (judgments == 1)), f"Invalid judgment value"
+        assert torch.all((judgments == 0) | (judgments == 1)), "Invalid judgment value"
+
 
 class CyclingEnvHandler:
     def __init__(self, num_envs: int, device: torch.device):
-        self.envs = AsyncVectorEnv([lambda: gym.make("Pendulum-v1") for i in range(NUM_ENVS)])
+        self.num_envs = num_envs
+        self.envs = gym.vector.AsyncVectorEnv(
+            [lambda: gym.make("Pendulum-v1") for i in range(num_envs)]
+        )
         self.device = device
-    
+
     def normalize_states(self, states: torch.Tensor):
         states[:, 2] /= 8
-    
+
     def reset(self, seed: int = None) -> torch.Tensor:
         kwargs = {"seed": seed} if seed is not None else {}
-        states = torch.tensor(self.envs.reset(**kwargs)[0]["observation"], device=self.device)
+        states = torch.tensor(self.envs.reset(**kwargs)[0], device=self.device)
         self.normalize_states(states)
         return states
-    
+
     def step(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        actions = actions.cpu().numpy()
+        actions = actions.cpu().detach().numpy()
         next_states, rewards, terminated, truncated, info = self.envs.step(actions)
-        dones = np.logical_or(terminated, truncated)
+        dones = np.logical_or(terminated, truncated)[:, None]
         if np.any(dones):
             for i in range(self.num_envs):
                 if dones[i]:
-                    next_states[i] = info["final_observation"][i]["observation"]
+                    next_states[i] = info["final_observation"][i]
         next_states = torch.tensor(next_states, device=self.device)
         self.normalize_states(next_states)
         return next_states, torch.tensor(dones, device=self.device)
-    
+
     def select_random_actions(self) -> torch.Tensor:
         # TODO: test this
         return torch.tensor(self.envs.action_space.sample(), device=self.device)
-    
+
     def get_environment_specs(self):
-        observation_space = self.envs.single_observation_space["observation"]
+        observation_space = self.envs.single_observation_space
 
         state_dim = observation_space.shape[0]
         action_dim = self.envs.single_action_space.shape[0]
@@ -189,12 +216,18 @@ class CyclingEnvHandler:
 
         assert action_low == -action_high
         return state_dim, action_dim, action_low, action_high
-        
+
 
 class DataHandler:
     """Handles environment initialization, data generation, and storage."""
 
-    def __init__(self, state_buffer: StateBuffer = None, judgment_buffer: JudgmentBuffer = None, experience_buffer: ExperienceBuffer = None, env_handler: CyclingEnvHandler = None):
+    def __init__(
+        self,
+        state_buffer: StateBuffer = None,
+        judgment_buffer: JudgmentBuffer = None,
+        experience_buffer: ExperienceBuffer = None,
+        env_handler: CyclingEnvHandler = None,
+    ):
         """Initialize the environments and relevant parameters.
 
         Args:
@@ -228,11 +261,26 @@ class DataHandler:
             judgments (torch.Tensor): The judgments.
         """
         self.judgment_buffer.add(states1=states1, states2=states2, judgments=judgments)
-    
-    def save_experiences(self, states: torch.Tensor, actions: torch.Tensor, next_states: torch.Tensor, rewards: torch.Tensor, dones: torch.Tensor):
-        self.experience_buffer.add(states=states, actions=actions, next_states=next_states, rewards=rewards, dones=dones)
-    
-    def step_environments(self, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def save_experiences(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        next_states: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+    ):
+        self.experience_buffer.add(
+            states=states,
+            actions=actions,
+            next_states=next_states,
+            rewards=rewards,
+            dones=dones,
+        )
+
+    def step_environments(
+        self, actions: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         next_states, dones = self.env_handler.step(actions)
         return next_states, dones
 
@@ -241,19 +289,29 @@ class DataHandler:
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         result = self.judgment_buffer.sample(n_samples)
         return result["states1"], result["states2"], result["judgments"]
-    
-    def sample_past_experiences(self, n_samples: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+
+    def sample_past_experiences(
+        self, n_samples: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         sampled = self.experience_buffer.sample(n_samples)
-        return sampled["states"], sampled["actions"], sampled["next_states"], sampled["rewards"], sampled["dones"]
-    
+        return (
+            sampled["states"],
+            sampled["actions"],
+            sampled["next_states"],
+            sampled["rewards"],
+            sampled["dones"],
+        )
+
     def reset_envs(self, seed: int = None) -> torch.Tensor:
         return self.env_handler.reset(seed)
-    
+
     def select_random_actions(self) -> torch.Tensor:
         return self.env_handler.select_random_actions()
-    
+
     @classmethod
-    def load_model(cls, id: str, model_cls: Type[torch.nn.Module], model_name: str = None) -> torch.nn.Module:
+    def load_model(
+        cls, id: str, model_cls: Type[torch.nn.Module], model_name: str = None
+    ) -> torch.nn.Module:
         model_dir = MODELS_DIR / id
         if not model_dir.exists():
             raise FileNotFoundError(f"Model directory {model_dir} does not exist.")
@@ -271,12 +329,14 @@ class DataHandler:
         model_dir = MODELS_DIR / self.id
         if not model_dir.exists():
             model_dir.mkdir(parents=True)
-        model_name = model.__class__.__name__
+        model_name = model.name if hasattr(model, "name") else model.__class__.__name__
         # save the model
         torch.save(model.state_dict(), model_dir / f"{model_name}.pth")
 
     @classmethod
-    def load_buffer(cls, id: str, buffer_cls: Type[Buffer], device: torch.device) -> Buffer:
+    def load_buffer(
+        cls, id: str, buffer_cls: Type[Buffer], device: torch.device
+    ) -> Buffer:
         # TODO: this is broken when dtypes are not float32
         """Load a buffer from disk.
 
@@ -298,12 +358,12 @@ class DataHandler:
 
         # Load the data dictionary from the .pt file
         data = torch.load(buffer_path)
-        var_names = data['var_names']
-        var_dtypes = data['var_dtypes']
-        var_shapes = data['var_shapes']
-        size = data['size']
-        max_size = data['max_size']
-        ptr = data['ptr']
+        var_names = data["var_names"]
+        var_dtypes = data["var_dtypes"]
+        var_shapes = data["var_shapes"]
+        size = data["size"]
+        max_size = data["max_size"]
+        ptr = data["ptr"]
 
         # Instantiate the buffer
         buffer = buffer_cls(max_size, device)
@@ -317,7 +377,7 @@ class DataHandler:
                 max_size,
                 *var_shapes[var_name],
                 dtype=var_dtypes[var_name],
-                device=device
+                device=device,
             )
             var_tensor[:size] = var_data.to(device)
             setattr(buffer, var_name, var_tensor)
@@ -338,16 +398,16 @@ class DataHandler:
 
         # Prepare the data to be saved
         data = {
-            'var_names': buffer.var_names,
-            'var_dtypes': buffer.var_dtypes,
-            'var_shapes': buffer.var_shapes,
-            'size': buffer.size,
-            'max_size': buffer.max_size,
-            'ptr': buffer.ptr,
+            "var_names": buffer.var_names,
+            "var_dtypes": buffer.var_dtypes,
+            "var_shapes": buffer.var_shapes,
+            "size": buffer.size,
+            "max_size": buffer.max_size,
+            "ptr": buffer.ptr,
         }
         # Save each variable tensor up to 'size'
         for var_name in buffer.var_names:
-            var_data = getattr(buffer, var_name)[:buffer.size].cpu()
+            var_data = getattr(buffer, var_name)[: buffer.size].cpu()
             data[var_name] = var_data
 
         # Save the data dictionary as a .pt file
@@ -355,4 +415,3 @@ class DataHandler:
 
     def get_environment_specs(self):
         return self.env_handler.get_environment_specs()
-        

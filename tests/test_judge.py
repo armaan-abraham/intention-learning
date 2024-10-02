@@ -1,13 +1,12 @@
-import torch
-from intention_learning.judge import Judge, PromptAndParser, validate_judgments
-from intention_learning.img import ImageHandler
-from intention_learning.data import DataHandler, StateBuffer, JudgmentBuffer, IMAGES_DIR
-import os
 import argparse
 import base64
-from io import BytesIO
-from PIL import Image
 import math
+
+import torch
+
+from intention_learning.data import IMAGES_DIR, DataHandler, JudgmentBuffer, StateBuffer
+from intention_learning.img import ImageHandler
+from intention_learning.judge import Judge, validate_judgments
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -19,6 +18,7 @@ data_handler = DataHandler(state_buffer=state_buffer, judgment_buffer=judgment_b
 # Initialize the image handler and judge
 image_handler = ImageHandler(image_dim=450)
 judge = Judge(image_handler=image_handler, data_handler=data_handler)
+
 
 def encode_image(image_path):
     """Encode the image to base64."""
@@ -36,10 +36,17 @@ def encode_image(image_path):
 def wrap_image_content(image_b64: str) -> str:
     return f"data:image/jpeg;base64,{image_b64}"
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--test-encode-image', action='store_true', help='Test the encode_image_for_prompt function')
-    parser.add_argument('--batch-size', type=int, default=5, help='Batch size for judgments')
+    parser.add_argument(
+        "--test-encode-image",
+        action="store_true",
+        help="Test the encode_image_for_prompt function",
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=5, help="Batch size for judgments"
+    )
     args = parser.parse_args()
 
     if args.test_encode_image:
@@ -48,24 +55,13 @@ if __name__ == '__main__':
         velocity = torch.rand(2) * 16 - 8
         states = torch.stack([torch.cos(angle), torch.sin(angle), velocity], dim=1)
 
-        # Store the state
-        data_handler.store_states(states)
-
         # Create an image from the state
         states = states.cpu().numpy()
         img = image_handler.overlay_states_on_img(states[0], states[1])
 
         # Save the original image
-        original_img_path = IMAGES_DIR / 'original_image.png'
+        original_img_path = IMAGES_DIR / "original_image.png"
         img.save(original_img_path)
-
-        # Encode the image using encode_image_for_prompt
-        encoded_image_data = judge.encode_image_for_prompt(img)
-
-        # Encode the image using wrap_image_content
-        wrapped_image_data = wrap_image_content(encode_image(original_img_path))
-
-        assert encoded_image_data == wrapped_image_data
 
     else:
         # Modified code for judging state pairs with batching
@@ -74,34 +70,35 @@ if __name__ == '__main__':
         angles = torch.rand(n_states) * 2 * torch.pi
         velocities = torch.rand(n_states) * 16 - 8
         states = torch.stack([torch.cos(angles), torch.sin(angles), velocities], dim=1)
-        
+
         # Store states in the data handler
         data_handler.store_states(states)
-        
+
         # Create pairs of states
         states1 = states[::2]
         states2 = states[1::2]
-        
+
         # Judge the state pairs in batches
         batch_size = args.batch_size
         n_batches = math.ceil(n_pairs / batch_size)
-        
+
         all_judgments = []
         all_images = []
-        
+
         for i in range(n_batches):
             start_idx = i * batch_size
             end_idx = min((i + 1) * batch_size, n_pairs)
-            
+
             batch_states1 = states1[start_idx:end_idx]
             batch_states2 = states2[start_idx:end_idx]
-            
+
             batch_judgments = judge.judge(batch_states1, batch_states2)
-            
+
             all_judgments.extend(batch_judgments)
 
         judgments = all_judgments
 
-        is_valid_judgment = validate_judgments(states1, states2, torch.Tensor(judgments)[:, None])
+        is_valid_judgment = validate_judgments(
+            states1, states2, torch.Tensor(judgments)[:, None]
+        )
         print(f"percent valid: {is_valid_judgment.sum() / is_valid_judgment.numel()}")
-

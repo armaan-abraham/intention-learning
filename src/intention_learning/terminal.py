@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from intention_learning.data import DataHandler, MODELS_DIR
+
+from intention_learning.data import DataHandler
 
 
 class TerminalNetwork(nn.Module):
@@ -23,7 +24,13 @@ class TerminalNetwork(nn.Module):
 class TerminalModel:
     """Model of the terminal (instrinsic) value of states."""
 
-    def __init__(self, data_handler: DataHandler, device: torch.device, lr: float = 5e-3, network: nn.Module = None):
+    def __init__(
+        self,
+        data_handler: DataHandler,
+        device: torch.device,
+        lr: float = 5e-3,
+        network: nn.Module = None,
+    ):
         self.network = network if network is not None else TerminalNetwork().to(device)
         self.data_handler = data_handler
         self.optimizer = torch.optim.Adam(

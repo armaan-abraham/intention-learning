@@ -1,15 +1,25 @@
+import argparse
+
 import torch
 from tqdm import tqdm
-import argparse
-from intention_learning.terminal import TerminalModel, TerminalNetwork
-from intention_learning.data import DataHandler, JudgmentBuffer, StateBuffer, IMAGES_DIR
-from intention_learning.judge import Judge, validate_judgments
+
+from intention_learning.data import IMAGES_DIR, DataHandler, JudgmentBuffer, StateBuffer
 from intention_learning.img import ImageHandler
+from intention_learning.judge import Judge, validate_judgments
+from intention_learning.terminal import TerminalModel, TerminalNetwork
+
 
 def main():
     parser = argparse.ArgumentParser(description="Test Terminal Model")
-    parser.add_argument('--id', type=str, required=True, help='Identifier for the model and data')
-    parser.add_argument('--action', type=str, choices=['judge-train', 'train', 'visualize'], help='Action to perform: judge-train, train, or visualize the terminal model')
+    parser.add_argument(
+        "--id", type=str, required=True, help="Identifier for the model and data"
+    )
+    parser.add_argument(
+        "--action",
+        type=str,
+        choices=["judge-train", "train", "visualize"],
+        help="Action to perform: judge-train, train, or visualize the terminal model",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -56,8 +66,12 @@ def main():
         # create progress bar
         pbar = tqdm(range(n_epochs))
         for epoch in pbar:
-            judge.sample_and_judge(n_pairs=n_judgments_per_epoch, batch_size=judgment_batch_size)
-            terminal_model.train(batch_size=terminal_train_batch_size, n_iter=terminal_train_n_iter)
+            judge.sample_and_judge(
+                n_pairs=n_judgments_per_epoch, batch_size=judgment_batch_size
+            )
+            terminal_model.train(
+                batch_size=terminal_train_batch_size, n_iter=terminal_train_n_iter
+            )
 
             # get accuracy of judgments
             judgments = judgment_buffer.all()
@@ -65,8 +79,16 @@ def main():
             percent_valid = is_valid_judgment.sum() / is_valid_judgment.numel()
 
             # add loss to progress bar
-            loss = terminal_model.sample_and_evaluate_loss(n_samples=terminal_train_batch_size)
-            pbar.set_postfix({"Loss": f"{loss.item():.4f}", "Judgments": judgment_buffer.size, "Percent Valid": f"{percent_valid:.4f}"})
+            loss = terminal_model.sample_and_evaluate_loss(
+                n_samples=terminal_train_batch_size
+            )
+            pbar.set_postfix(
+                {
+                    "Loss": f"{loss.item():.4f}",
+                    "Judgments": judgment_buffer.size,
+                    "Percent Valid": f"{percent_valid:.4f}",
+                }
+            )
 
             if epoch % 5 == 0:
                 terminal_model.save()
@@ -84,12 +106,15 @@ def main():
         terminal_model = TerminalModel(data_handler, device, network=terminal_network)
 
         # Generate the visualization
-        visualization = image_handler.visualize_terminal_model(terminal_model, device=device)
+        visualization = image_handler.visualize_terminal_model(
+            terminal_model, device=device
+        )
 
         # Save the visualization
         visualization_path = IMAGES_DIR / f"terminal_model_visualization_{args.id}.png"
         visualization.save(visualization_path)
         print(f"Visualization saved at {visualization_path}")
+
 
 if __name__ == "__main__":
     main()

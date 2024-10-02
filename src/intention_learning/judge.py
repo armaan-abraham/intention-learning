@@ -1,27 +1,29 @@
-from mistral_inference.transformer import Transformer
-from mistral_inference.generate import generate
-from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-from mistral_common.protocol.instruct.messages import (
-    UserMessage,
-    TextChunk,
-    ImageURLChunk,
-)
-from mistral_common.protocol.instruct.request import ChatCompletionRequest
-from huggingface_hub import snapshot_download
-from pathlib import Path
-from typing import List
-import torch
-import PIL
+import base64
 import io
 import os
-from intention_learning.img import ImageHandler
+from pathlib import Path
+from typing import List
+
+import PIL
+import torch
+from huggingface_hub import snapshot_download
+from mistral_common.protocol.instruct.messages import (
+    ImageURLChunk,
+    TextChunk,
+    UserMessage,
+)
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+from mistral_inference.generate import generate
+from mistral_inference.transformer import Transformer
+
 from intention_learning.data import DataHandler
-import base64
+from intention_learning.img import ImageHandler
 
 
 class PromptAndParser:
     prompt = (
-    """In this image, there are two pendulums (green and blue) pivoting
+        """In this image, there are two pendulums (green and blue) pivoting
     around the same point in the middle (the black circle).  Which pendulum's
     endpoint (i.e., the end opposite the pivot) is higher? Respond only with the
     color of the pendulum whose endpoint is higher and surround your answer with
@@ -193,9 +195,10 @@ class Judge:
         image_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return f"data:image/jpeg;base64,{image_b64}"
 
+
 def validate_judgments(
     states1: torch.Tensor, states2: torch.Tensor, judgments: torch.Tensor
 ) -> bool:
-    terminal_1 = -torch.arctan2(states1[:, 1], states1[:, 0]) ** 2
-    terminal_2 = -torch.arctan2(states2[:, 1], states2[:, 0]) ** 2
+    terminal_1 = -(torch.arctan2(states1[:, 1], states1[:, 0]) ** 2)
+    terminal_2 = -(torch.arctan2(states2[:, 1], states2[:, 0]) ** 2)
     return judgments[:, 0] == (terminal_2 > terminal_1).to(torch.int32)
